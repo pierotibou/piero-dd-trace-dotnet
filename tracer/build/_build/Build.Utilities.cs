@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using GenerateDocumentation;
 using GeneratePackageVersions;
 using Honeypot;
 using Nuke.Common;
@@ -198,6 +199,17 @@ partial class Build
            var versionGenerator = new PackageVersionGenerator(TracerDirectory, testDir);
            await versionGenerator.GenerateVersions();
        });
+    
+    Target GenerateDocumentation => _ => _
+        .Description("Regenerate documentation from our code models")
+        .Executes(() =>
+        {
+            var spanModelRulesFilePath = TestsDirectory / "Datadog.Trace.TestHelpers.FSharp" / "SpanModel.fs";
+            var docsDirectory = RootDirectory / "docs";
+
+            var documentationGenerator = new DocumentationGenerator(spanModelRulesFilePath, docsDirectory);
+            documentationGenerator.GenerateDocumentation();
+        });
 
     Target UpdateVendoredCode => _ => _
        .Description("Updates the vendored dependency code and dependabot template")

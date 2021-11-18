@@ -352,6 +352,26 @@ namespace Datadog.Trace.TestHelpers
                 return this;
             }
 
+            public string GetTag(string key)
+            {
+                if (Tags.TryGetValue(key, out string value))
+                {
+                    return value;
+                }
+
+                return null;
+            }
+
+            public double? GetMetric(string key)
+            {
+                if (Metrics.TryGetValue(key, out double value))
+                {
+                    return value;
+                }
+
+                return null;
+            }
+
             public override string ToString()
             {
                 return $"TraceId={TraceId}, SpanId={SpanId}, Service={Service}, Name={Name}, Resource={Resource}, Type={Type}";
