@@ -22,7 +22,7 @@ namespace Datadog.Trace.Tests.DistributedTracer
         {
             var distributedTracer = new Mock<IDistributedTracer>();
 
-            var spanContext = new SpanContext(1, 2, SamplingPriority.UserKeep);
+            var spanContext = new SpanContext(1, 2, (int)SamplingPriority.UserKeep);
 
             distributedTracer.Setup(t => t.GetSpanContext()).Returns(spanContext);
 

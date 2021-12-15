@@ -58,7 +58,7 @@ namespace Datadog.Trace.OpenTracing.Tests
         {
             const ulong spanId = 10;
             const ulong traceId = 7;
-            const SamplingPriority samplingPriority = SamplingPriority.UserKeep;
+            const int samplingPriority = (int)SamplingPriority.UserKeep;
 
             var ddSpanContext = new SpanContext(traceId, spanId, samplingPriority);
             var spanContext = new OpenTracingSpanContext(ddSpanContext);
@@ -68,7 +68,7 @@ namespace Datadog.Trace.OpenTracing.Tests
 
             Assert.Equal(spanId.ToString(), headers.Get(HttpHeaderParentId));
             Assert.Equal(traceId.ToString(), headers.Get(HttpHeaderTraceId));
-            Assert.Equal(((int)samplingPriority).ToString(), headers.Get(HttpHeaderSamplingPriority));
+            Assert.Equal(samplingPriority.ToString(), headers.Get(HttpHeaderSamplingPriority));
         }
     }
 }

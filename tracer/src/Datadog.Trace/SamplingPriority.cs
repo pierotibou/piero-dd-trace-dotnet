@@ -20,7 +20,7 @@ namespace Datadog.Trace
     /// the decision originated from.
     /// </para>
     /// </remarks>
-    public enum SamplingPriority
+    internal enum SamplingPriority
     {
         /// <summary>
         /// Trace should be dropped (not sampled).

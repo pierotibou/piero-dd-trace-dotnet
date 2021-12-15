@@ -20,29 +20,13 @@ namespace Datadog.Trace.ExtensionMethods
     /// </summary>
     public static class SpanExtensions
     {
-        /// <summary>
-        /// Sets the sampling priority for the trace that contains the specified <see cref="ISpan"/>.
-        /// </summary>
-        /// <param name="span">A span that belongs to the trace.</param>
-        /// <param name="samplingPriority">The new sampling priority for the trace.</param>
-        [Obsolete("This method is deprecated and will be removed in a future version of the tracer. Use Span.KeepTrace() or Span.DropTrace() instead.")]
-        public static void SetTraceSamplingPriority(this ISpan span, SamplingPriority samplingPriority)
-        {
-            span.SetTraceSamplingPriority(samplingPriority, lockSampling: false);
-        }
-
-        internal static void SetTraceSamplingPriority(this ISpan span, SamplingPriority samplingPriority, bool lockSampling)
+        internal static void SetTraceSamplingPriority(this ISpan span, SamplingPriority? samplingPriority)
         {
             if (span == null) { throw new ArgumentNullException(nameof(span)); }
 
             if (span.Context is SpanContext spanContext && spanContext.TraceContext != null)
             {
                 spanContext.TraceContext.SamplingPriority = samplingPriority;
-
-                if (lockSampling)
-                {
-                    spanContext.TraceContext.LockSamplingPriority();
-                }
             }
         }
 
@@ -52,7 +36,7 @@ namespace Datadog.Trace.ExtensionMethods
         /// <param name="span">A span that belongs to the trace.</param>
         public static void KeepTrace(this ISpan span)
         {
-            span.SetTraceSamplingPriority(SamplingPriority.UserKeep, lockSampling: false);
+            span.SetTraceSamplingPriority(SamplingPriority.UserKeep);
         }
 
         /// <summary>
@@ -63,7 +47,7 @@ namespace Datadog.Trace.ExtensionMethods
         /// <param name="span">A span that belongs to the trace.</param>
         public static void DropTrace(this ISpan span)
         {
-            span.SetTraceSamplingPriority(SamplingPriority.UserReject, lockSampling: false);
+            span.SetTraceSamplingPriority(SamplingPriority.UserReject);
         }
 
         internal static void DecorateWebServerSpan(
