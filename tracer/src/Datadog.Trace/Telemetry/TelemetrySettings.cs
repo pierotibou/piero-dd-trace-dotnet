@@ -4,7 +4,6 @@
 // </copyright>
 
 using System;
-using Datadog.Trace.Agent;
 using Datadog.Trace.Configuration;
 
 namespace Datadog.Trace.Telemetry
@@ -13,16 +12,37 @@ namespace Datadog.Trace.Telemetry
     {
         public TelemetrySettings(IConfigurationSource source, ImmutableTracerSettings tracerSettings)
         {
-            var explicitlyEnabled = source?.GetBool(ConfigurationKeys.Telemetry.Enabled);
-            TelemetryEnabled = explicitlyEnabled ?? false;
-
             var apiKey = source?.GetString(ConfigurationKeys.ApiKey);
+            var explicitlyEnabled = source?.GetBool(ConfigurationKeys.Telemetry.Enabled);
+            var agentlessExplicitlyEnabled = source?.GetBool(ConfigurationKeys.Telemetry.AgentlessEnabled);
+            bool agentlessEnabled = false;
 
-            if (explicitlyEnabled != false && !string.IsNullOrEmpty(apiKey))
+            if (agentlessExplicitlyEnabled == true)
+            {
+                if (string.IsNullOrEmpty(apiKey))
+                {
+                    ConfigurationError = "Telemetry configuration error: Agentless mode was enabled, but no API key was available";
+                }
+                else
+                {
+                    agentlessEnabled = true;
+                }
+            }
+            else if (agentlessExplicitlyEnabled is null)
+            {
+                // if there's an API key, we use agentless mode, otherwise we use the agent
+                agentlessEnabled = !string.IsNullOrEmpty(apiKey);
+            }
+
+            // disabled by default unless using agentless
+            TelemetryEnabled = explicitlyEnabled ?? agentlessEnabled;
+
+            if (TelemetryEnabled && agentlessEnabled)
             {
                 // We have an API key, so try to send directly to intake
                 ApiKey = apiKey;
                 TelemetryEnabled = true;
+                SendDirectlyToIntake = true;
 
                 var requestedTelemetryUri = source?.GetString(ConfigurationKeys.Telemetry.Uri);
                 if (!string.IsNullOrEmpty(requestedTelemetryUri)
@@ -42,15 +62,7 @@ namespace Datadog.Trace.Telemetry
             else if (TelemetryEnabled)
             {
                 // no API key provided, so send to the agent instead
-                // We only support http at the moment so disable telemetry for now if we're using something else
-                if (tracerSettings.Exporter.TracesTransport == TracesTransportType.Default)
-                {
-                    TelemetryUri = new Uri(tracerSettings.Exporter.AgentUri, TelemetryConstants.AgentTelemetryEndpoint);
-                }
-                else
-                {
-                    TelemetryEnabled = false;
-                }
+                TelemetryUri = new Uri(tracerSettings.Exporter.AgentUri, TelemetryConstants.AgentTelemetryEndpoint);
             }
         }
 
@@ -70,6 +82,16 @@ namespace Datadog.Trace.Telemetry
         /// Gets the api key to use when sending requests to the telemetry intake
         /// </summary>
         public string ApiKey { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether telemetry should be sent direct to the intake instead of the agent
+        /// </summary>
+        public bool SendDirectlyToIntake { get; }
+
+        /// <summary>
+        /// Gets a value indicating configuration errors
+        /// </summary>
+        public string ConfigurationError { get; }
 
         public static TelemetrySettings FromDefaultSources(ImmutableTracerSettings tracerSettings)
             => new TelemetrySettings(GlobalSettings.CreateDefaultConfigurationSource(), tracerSettings);

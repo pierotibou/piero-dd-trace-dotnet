@@ -40,10 +40,11 @@ namespace Datadog.Trace.Tests.Telemetry
             var settings = new TelemetrySettings(source, _tracerSettings);
 
             settings.TelemetryUri.Should().Be(expected);
+            settings.SendDirectlyToIntake.Should().BeTrue();
         }
 
         [Fact]
-        public void WhenNoUrlOrApiKeyIsProvided_UsesAgentBasedUrl()
+        public void WhenNoUrlOrApiKeyIsProvided_UsesAgentIntake()
         {
             var source = new NameValueConfigurationSource(new NameValueCollection
             {
@@ -53,6 +54,7 @@ namespace Datadog.Trace.Tests.Telemetry
             var settings = new TelemetrySettings(source, _tracerSettings);
 
             settings.TelemetryUri.Should().Be(_defaultAgentUrl);
+            settings.SendDirectlyToIntake.Should().BeFalse();
         }
 
         [Fact]
@@ -67,6 +69,7 @@ namespace Datadog.Trace.Tests.Telemetry
             var settings = new TelemetrySettings(source, _tracerSettings);
 
             settings.TelemetryUri.Should().Be(_defaultIntakeUrl);
+            settings.SendDirectlyToIntake.Should().BeTrue();
         }
 
         [Fact]
@@ -83,10 +86,11 @@ namespace Datadog.Trace.Tests.Telemetry
             var settings = new TelemetrySettings(source, _tracerSettings);
 
             settings.TelemetryUri.Should().Be($"https://instrumentation-telemetry-intake.{domain}/");
+            settings.SendDirectlyToIntake.Should().BeTrue();
         }
 
         [Fact]
-        public void WhenInvalidUrlApiIsProvided_AndNoApiKey_UsesDefaultAgentUrl()
+        public void WhenInvalidUrlApiIsProvided_AndNoApiKey_UsesAgentIntake()
         {
             var url = "https://sometest::";
             var source = new NameValueConfigurationSource(new NameValueCollection
@@ -98,6 +102,7 @@ namespace Datadog.Trace.Tests.Telemetry
             var settings = new TelemetrySettings(source, _tracerSettings);
 
             settings.TelemetryUri.Should().Be(_defaultAgentUrl);
+            settings.SendDirectlyToIntake.Should().BeFalse();
         }
 
         [Theory]
@@ -117,6 +122,7 @@ namespace Datadog.Trace.Tests.Telemetry
             var settings = new TelemetrySettings(source, _tracerSettings);
 
             settings.TelemetryUri.Should().Be(_defaultIntakeUrl);
+            settings.SendDirectlyToIntake.Should().BeTrue();
         }
 
         [Theory]
