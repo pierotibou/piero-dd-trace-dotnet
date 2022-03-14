@@ -283,7 +283,7 @@ stages:
   - job: build
     dependsOn: []
     pool:
-      name: Arm64
+      name: Arm64 - Test
     workspace:
       clean: all
     steps:
