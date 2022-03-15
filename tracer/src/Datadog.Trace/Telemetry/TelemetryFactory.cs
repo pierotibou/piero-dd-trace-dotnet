@@ -7,6 +7,7 @@ using System;
 using System.Threading;
 using Datadog.Trace.Configuration;
 using Datadog.Trace.Logging;
+using Datadog.Trace.Telemetry.Transports;
 
 namespace Datadog.Trace.Telemetry
 {
@@ -25,11 +26,17 @@ namespace Datadog.Trace.Telemetry
             {
                 try
                 {
+                    var factory = TelemetryTransportFactory.Create(
+                        tracerSettings.Exporter,
+                        settings.SendDirectlyToIntake,
+                        settings.TelemetryUri,
+                        settings.ApiKey);
+
                     return new TelemetryController(
                         Configuration,
                         Dependencies,
                         Integrations,
-                        new TelemetryTransportFactory(settings.TelemetryUri, settings.ApiKey).Create(),
+                        factory,
                         TelemetryConstants.RefreshInterval);
                 }
                 catch (Exception ex)

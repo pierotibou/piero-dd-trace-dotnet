@@ -10,8 +10,11 @@ using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using Datadog.Trace.Telemetry;
+using Datadog.Trace.Telemetry.Transports;
 using Datadog.Trace.Vendors.Newtonsoft.Json;
 
 namespace Datadog.Trace.TestHelpers
@@ -21,11 +24,11 @@ namespace Datadog.Trace.TestHelpers
         private readonly HttpListener _listener;
         private readonly Thread _listenerThread;
 
-        // Needs to be kept in sync with JsonTelemetryTransportBase.SerializerSettings, but with the additional converter
+        // Needs to be kept in sync with JsonTelemetryTransport.SerializerSettings, but with the additional converter
         private readonly JsonSerializer _serializer = JsonSerializer.Create(new JsonSerializerSettings
         {
-            NullValueHandling = JsonTelemetryTransportBase.SerializerSettings.NullValueHandling,
-            ContractResolver = JsonTelemetryTransportBase.SerializerSettings.ContractResolver,
+            NullValueHandling = JsonTelemetryTransport.SerializerSettings.NullValueHandling,
+            ContractResolver = JsonTelemetryTransport.SerializerSettings.ContractResolver,
             Converters = new List<JsonConverter> { new PayloadConverter() },
         });
 

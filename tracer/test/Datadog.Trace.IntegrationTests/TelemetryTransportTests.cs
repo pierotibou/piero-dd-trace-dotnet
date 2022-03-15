@@ -6,7 +6,9 @@
 using System;
 using System.Net;
 using System.Threading.Tasks;
+using Datadog.Trace.Configuration;
 using Datadog.Trace.Telemetry;
+using Datadog.Trace.Telemetry.Transports;
 using Datadog.Trace.TestHelpers;
 using FluentAssertions;
 using Xunit;
@@ -22,7 +24,11 @@ namespace Datadog.Trace.IntegrationTests
             var telemetryUri = new Uri($"http://localhost:{agent.Port}");
 
             // Uses framework specific transport
-            var transport = new TelemetryTransportFactory(telemetryUri, apiKey: null).Create();
+            var transport = TelemetryTransportFactory.Create(
+                new ImmutableExporterSettings(new ExporterSettings()),
+                sendDirectlyToIntake: false,
+                telemetryUri,
+                apiKey: null);
             var data = GetSampleData();
 
             var result = await transport.PushTelemetry(data);
@@ -46,7 +52,11 @@ namespace Datadog.Trace.IntegrationTests
             var telemetryUri = new Uri($"http://localhost:{port}");
 
             // Uses framework specific transport
-            var transport = new TelemetryTransportFactory(telemetryUri, apiKey: null).Create();
+            var transport = TelemetryTransportFactory.Create(
+                new ImmutableExporterSettings(new ExporterSettings()),
+                sendDirectlyToIntake: false,
+                telemetryUri,
+                apiKey: null);
             var data = GetSampleData();
 
             var result = await transport.PushTelemetry(data);
@@ -67,7 +77,11 @@ namespace Datadog.Trace.IntegrationTests
             var telemetryUri = new Uri($"http://localhost:{agent.Port}");
 
             // Uses framework specific transport
-            var transport = new TelemetryTransportFactory(telemetryUri, apiKey: null).Create();
+            var transport = TelemetryTransportFactory.Create(
+                new ImmutableExporterSettings(new ExporterSettings()),
+                sendDirectlyToIntake: false,
+                telemetryUri,
+                apiKey: null);
             var data = GetSampleData();
 
             var result = await transport.PushTelemetry(data);
