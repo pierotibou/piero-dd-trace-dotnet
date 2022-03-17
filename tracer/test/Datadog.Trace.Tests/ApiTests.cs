@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using Datadog.Trace.Agent;
 using Datadog.Trace.Agent.Transports;
 using Datadog.Trace.Logging;
-using Datadog.Trace.Sampling;
 using Datadog.Trace.Vendors.Newtonsoft.Json;
 using FluentAssertions;
 using Moq;
@@ -31,7 +30,7 @@ namespace Datadog.Trace.Tests
             var factoryMock = new Mock<IApiRequestFactory>();
             factoryMock.Setup(x => x.Create(It.IsAny<Uri>())).Returns(requestMock.Object);
 
-            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: false);
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: false, areTracerStatsEnabled: false);
 
             await api.SendTracesAsync(new ArraySegment<byte>(new byte[64]), 1);
 
@@ -50,11 +49,74 @@ namespace Datadog.Trace.Tests
             var factoryMock = new Mock<IApiRequestFactory>();
             factoryMock.Setup(x => x.Create(It.IsAny<Uri>())).Returns(requestMock.Object);
 
-            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: false);
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: false, areTracerStatsEnabled: false);
 
             await api.SendTracesAsync(new ArraySegment<byte>(new byte[64]), 1);
 
             requestMock.Verify(x => x.PostAsync(It.IsAny<ArraySegment<byte>>(), MimeTypes.MsgPack), Times.Exactly(5));
+        }
+
+        [Fact]
+        public async Task SendStatsAsync_200OK_AllGood()
+        {
+            var responseMock = new Mock<IApiResponse>();
+            responseMock.Setup(x => x.StatusCode).Returns(200);
+
+            var requestMock = new Mock<IApiRequest>();
+            requestMock.Setup(x => x.PostAsync(It.IsAny<ArraySegment<byte>>(), MimeTypes.MsgPack)).ReturnsAsync(responseMock.Object);
+
+            var factoryMock = new Mock<IApiRequestFactory>();
+            factoryMock.Setup(x => x.Create(It.IsAny<Uri>())).Returns(requestMock.Object);
+
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: false, areTracerStatsEnabled: true);
+
+            var statsBuffer = new StatsBuffer(new ClientStatsPayload());
+
+            await api.SendStatsAsync(statsBuffer, 1);
+
+            requestMock.Verify(x => x.PostAsync(It.IsAny<ArraySegment<byte>>(), MimeTypes.MsgPack), Times.Once());
+        }
+
+        [Fact]
+        public async Task SendStatsAsync_500_ErrorIsCaught()
+        {
+            var responseMock = new Mock<IApiResponse>();
+            responseMock.Setup(x => x.StatusCode).Returns(500);
+
+            var requestMock = new Mock<IApiRequest>();
+            requestMock.Setup(x => x.PostAsync(It.IsAny<ArraySegment<byte>>(), MimeTypes.MsgPack)).ReturnsAsync(responseMock.Object);
+
+            var factoryMock = new Mock<IApiRequestFactory>();
+            factoryMock.Setup(x => x.Create(It.IsAny<Uri>())).Returns(requestMock.Object);
+
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: false, areTracerStatsEnabled: true);
+
+            var statsBuffer = new StatsBuffer(new ClientStatsPayload());
+
+            await api.SendStatsAsync(statsBuffer, 1);
+
+            requestMock.Verify(x => x.PostAsync(It.IsAny<ArraySegment<byte>>(), MimeTypes.MsgPack), Times.Exactly(5));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task StatsHeader(bool tracerStatsEnabled)
+        {
+            var responseMock = new Mock<IApiResponse>();
+            responseMock.Setup(x => x.StatusCode).Returns(200);
+
+            var requestMock = new Mock<IApiRequest>();
+            requestMock.Setup(x => x.PostAsync(It.IsAny<ArraySegment<byte>>(), MimeTypes.MsgPack)).ReturnsAsync(responseMock.Object);
+
+            var factoryMock = new Mock<IApiRequestFactory>();
+            factoryMock.Setup(x => x.Create(It.IsAny<Uri>())).Returns(requestMock.Object);
+
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: false, areTracerStatsEnabled: tracerStatsEnabled);
+
+            await api.SendTracesAsync(new ArraySegment<byte>(new byte[64]), 1);
+
+            requestMock.Verify(x => x.AddHeader(AgentHttpHeaderNames.TracerStats, "true"), tracerStatsEnabled ? Times.Once : Times.Never);
         }
 
         [Fact]
@@ -74,7 +136,7 @@ namespace Datadog.Trace.Tests
 
             var logMock = new Mock<IDatadogLogger>();
 
-            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: true, log: logMock.Object);
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: null, isPartialFlushEnabled: true, log: logMock.Object, areTracerStatsEnabled: false);
 
             // First time should write the warning
             await api.SendTracesAsync(new ArraySegment<byte>(new byte[64]), 1);
@@ -112,7 +174,7 @@ namespace Datadog.Trace.Tests
 
             var ratesWereSet = false;
             Action<Dictionary<string, float>> updateSampleRates = _ => ratesWereSet = true;
-            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: updateSampleRates, isPartialFlushEnabled: false);
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: factoryMock.Object, statsd: null, updateSampleRates: updateSampleRates, isPartialFlushEnabled: false, areTracerStatsEnabled: false);
 
             await api.SendTracesAsync(new ArraySegment<byte>(new byte[64]), 1);
             ratesWereSet.Should().BeTrue();
@@ -128,7 +190,7 @@ namespace Datadog.Trace.Tests
         [InlineData("", false, false)] // Version check fail, partial flush disabled
         public void LogPartialFlushWarning(string agentVersion, bool partialFlushEnabled, bool expectedResult)
         {
-            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: null, statsd: null, updateSampleRates: null, isPartialFlushEnabled: partialFlushEnabled);
+            var api = new Api(new Uri("http://127.0.0.1:1234"), apiRequestFactory: null, statsd: null, updateSampleRates: null, isPartialFlushEnabled: partialFlushEnabled, areTracerStatsEnabled: false);
 
             // First call depends on the parameters of the test
             api.LogPartialFlushWarningIfRequired(agentVersion).Should().Be(expectedResult);
