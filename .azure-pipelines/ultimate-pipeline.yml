@@ -283,7 +283,7 @@ stages:
   - job: build
     dependsOn: []
     pool:
-      name: Arm64 - Test
+      name: Arm64_Test
     workspace:
       clean: all
     steps:
@@ -536,7 +536,7 @@ stages:
 
     - job: test
       pool:
-        name: Arm64 - Test
+        name: Arm64_Test
       workspace:
         clean: all
       steps:
@@ -835,7 +835,7 @@ stages:
       workspace:
         clean: all
       pool:
-        name: Arm64 - Test
+        name: Arm64_Test
 
       steps:
         - template: steps/clone-repo.yml
@@ -1340,7 +1340,7 @@ stages:
           baseImage: debian
           artifactSuffix: linux-arm64
           poolImage:
-          poolName: Arm64 - Test
+          poolName: Arm64_Test
 
     pool:
       vmImage: $(poolImage)
@@ -1978,7 +1978,7 @@ stages:
       variables:
         smokeTestAppDir: "$(System.DefaultWorkingDirectory)/tracer/test/test-applications/regression/AspNetCoreSmokeTest"
       pool:
-        name: Arm64 - Test
+        name: Arm64_Test
 
       steps:
         - task: DownloadPipelineArtifact@2
