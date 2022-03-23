@@ -24,9 +24,9 @@ namespace Benchmarks.Trace
             settings.StartupDiagnosticLogEnabled = false;
             settings.TraceEnabled = false;
 
-            var api = new Api(settings.Exporter.AgentUri, new FakeApiRequestFactory(), statsd: null, updateSampleRates: null, isPartialFlushEnabled: false);
+            var api = new Api(settings.Exporter.AgentUri, new FakeApiRequestFactory(), statsd: null, updateSampleRates: null, isPartialFlushEnabled: false, areTracerStatsEnabled: false);
 
-            AgentWriter = new AgentWriter(api, statsd: null, automaticFlush: false);
+            AgentWriter = new AgentWriter(api, statsAggregator: null, statsd: null, automaticFlush: false);
 
             var enrichedSpans = new Span[SpanCount];
             var now = DateTimeOffset.UtcNow;
