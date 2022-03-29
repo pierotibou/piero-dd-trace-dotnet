@@ -121,7 +121,7 @@ namespace Datadog.Trace.Agent
                 }
                 catch (Exception ex)
                 {
-                    _log.Error(ex, "An error occurred while generating http request to send traces to the agent at {AgentEndpoint}", _apiRequestFactory.Info(endpoint));
+                    _log.Error(ex, "An error occurred while generating http request to send data to the agent at {AgentEndpoint}", _apiRequestFactory.Info(endpoint));
                     return false;
                 }
 
@@ -139,7 +139,7 @@ namespace Datadog.Trace.Agent
 #if DEBUG
                     if (ex.InnerException is InvalidOperationException ioe)
                     {
-                        _log.Error(ex, "An error occurred while sending traces to the agent at {AgentEndpoint}", _apiRequestFactory.Info(endpoint));
+                        _log.Error(ex, "An error occurred while sending data to the agent at {AgentEndpoint}", _apiRequestFactory.Info(endpoint));
                         return false;
                     }
 #endif
@@ -151,7 +151,7 @@ namespace Datadog.Trace.Agent
                     if (isFinalTry)
                     {
                         // stop retrying
-                        _log.Error(exception, "An error occurred while sending traces to the agent at {AgentEndpoint}", _apiRequestFactory.Info(endpoint));
+                        _log.Error(exception, "An error occurred while sending data to the agent at {AgentEndpoint}", _apiRequestFactory.Info(endpoint));
                         return false;
                     }
 
@@ -197,7 +197,7 @@ namespace Datadog.Trace.Agent
                 request.AddHeader(AgentHttpHeaderNames.ContainerId, _containerId);
             }
 
-            var stream = new MemoryStream();
+            using var stream = new MemoryStream();
             state.Stats.Serialize(stream, state.Duration);
 
             var buffer = stream.GetBuffer();
