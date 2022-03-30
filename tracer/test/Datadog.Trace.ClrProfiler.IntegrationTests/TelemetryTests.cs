@@ -23,18 +23,20 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
         [SkippableFact]
         [Trait("Category", "EndToEnd")]
         [Trait("RunOnWindows", "True")]
-        public void Telemetry_IsSentOnAppClose()
+        public void Telemetry_Agentless_IsSentOnAppClose()
         {
             const string expectedOperationName = "http.request";
             const int expectedSpanCount = 1;
             const string serviceVersion = "1.0.0";
 
-            int agentPort = TcpPortProvider.GetOpenPort();
-            Output.WriteLine($"Assigning port {agentPort} for the agentPort.");
-            using var agent = new MockTracerAgent(agentPort);
+            using var agent = new MockTracerAgent(useTelemetry: true);
+            Output.WriteLine($"Assigned port {agent.Port} for the agentPort.");
 
             SetServiceVersion(serviceVersion);
-            using var telemetry = this.ConfigureTelemetry();
+
+            using var telemetry = new MockTelemetryAgent<TelemetryData>();
+            Output.WriteLine($"Assigned port {telemetry.Port} for the telemetry port.");
+            EnableTelemetry(standaloneAgentPort: telemetry.Port);
 
             int httpPort = TcpPortProvider.GetOpenPort();
             Output.WriteLine($"Assigning port {httpPort} for the httpPort.");
@@ -50,6 +52,38 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
 
             data.Application.ServiceVersion.Should().Be(serviceVersion);
             data.Application.ServiceName.Should().Be("Samples.Telemetry");
+            agent.Telemetry.Should().BeEmpty();
+        }
+
+        [SkippableFact]
+        [Trait("Category", "EndToEnd")]
+        [Trait("RunOnWindows", "True")]
+        public void Telemetry_WithAgentProxy_IsSentOnAppClose()
+        {
+            const string expectedOperationName = "http.request";
+            const int expectedSpanCount = 1;
+            const string serviceVersion = "1.0.0";
+
+            using var agent = new MockTracerAgent(useTelemetry: true);
+            Output.WriteLine($"Assigned port {agent.Port} for the agentPort.");
+
+            SetServiceVersion(serviceVersion);
+            EnableTelemetry();
+
+            int httpPort = TcpPortProvider.GetOpenPort();
+            Output.WriteLine($"Assigning port {httpPort} for the httpPort.");
+            using (ProcessResult processResult = RunSampleAndWaitForExit(agent, arguments: $"Port={httpPort}"))
+            {
+                Assert.True(processResult.ExitCode == 0, $"Process exited with code {processResult.ExitCode}");
+
+                var spans = agent.WaitForSpans(expectedSpanCount, operationName: expectedOperationName);
+                Assert.Equal(expectedSpanCount, spans.Count);
+            }
+
+            var data = agent.AssertIntegrationEnabled(IntegrationId.HttpMessageHandler);
+
+            data.Application.ServiceVersion.Should().Be(serviceVersion);
+            data.Application.ServiceName.Should().Be("Samples.Telemetry");
         }
 
         [SkippableFact]
@@ -61,17 +95,11 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             const int expectedSpanCount = 1;
             const string serviceVersion = "1.0.0";
 
-            int agentPort = TcpPortProvider.GetOpenPort();
-            Output.WriteLine($"Assigning port {agentPort} for the agentPort.");
-            using var agent = new MockTracerAgent(agentPort);
+            using var agent = new MockTracerAgent(useTelemetry: true);
+            Output.WriteLine($"Assigned port {agent.Port} for the agentPort.");
 
             SetServiceVersion(serviceVersion);
-            int telemetryPort = TcpPortProvider.GetOpenPort();
-            using var telemetry = new MockTelemetryAgent<TelemetryData>(telemetryPort);
-
-            SetEnvironmentVariable("DD_INSTRUMENTATION_TELEMETRY_ENABLED", "false");
-            SetEnvironmentVariable("DD_TRACE_TELEMETRY_URL", $"http://localhost:{telemetry.Port}");
-            SetEnvironmentVariable("DD_API_KEY", "INVALID_KEY_FOR_TESTS");
+            EnableTelemetry(enabled: false);
 
             int httpPort = TcpPortProvider.GetOpenPort();
             Output.WriteLine($"Assigning port {httpPort} for the httpPort.");
@@ -84,29 +112,25 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             }
 
             // Shouldn't have any, but wait for 5s
-            telemetry.WaitForLatestTelemetry(x => true);
-            telemetry.Telemetry.Should().BeEmpty();
+            agent.WaitForLatestTelemetry(x => true);
+            agent.Telemetry.Should().BeEmpty();
         }
 
 #if NETCOREAPP3_1_OR_GREATER
         [SkippableFact]
         [Trait("Category", "EndToEnd")]
         [Trait("RunOnWindows", "True")]
-        public void WhenUsingUdsAgent_DoesntSendTelemetry()
+        public void WhenUsingUdsAgent_UsesUdsTelemetry()
         {
             const string expectedOperationName = "http.request";
             const int expectedSpanCount = 1;
             const string serviceVersion = "1.0.0";
 
             EnvironmentHelper.TransportType = TestTransports.Uds;
-            using var agent = EnvironmentHelper.GetMockAgent();
+            using var agent = EnvironmentHelper.GetMockAgent(useTelemetry: true);
 
             SetServiceVersion(serviceVersion);
-
-            int telemetryPort = TcpPortProvider.GetOpenPort();
-            using var telemetry = new MockTelemetryAgent<TelemetryData>(telemetryPort);
-
-            SetEnvironmentVariable("DD_INSTRUMENTATION_TELEMETRY_ENABLED", "false");
+            EnableTelemetry();
 
             int httpPort = TcpPortProvider.GetOpenPort();
             Output.WriteLine($"Assigning port {httpPort} for the httpPort.");
@@ -118,9 +142,10 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                 Assert.Equal(expectedSpanCount, spans.Count);
             }
 
-            // Shouldn't have any, but wait for 5s
-            telemetry.WaitForLatestTelemetry(x => true);
-            telemetry.Telemetry.Should().BeEmpty();
+            var data = agent.AssertIntegrationEnabled(IntegrationId.HttpMessageHandler);
+
+            data.Application.ServiceVersion.Should().Be(serviceVersion);
+            data.Application.ServiceName.Should().Be("Samples.Telemetry");
         }
 #endif
     }

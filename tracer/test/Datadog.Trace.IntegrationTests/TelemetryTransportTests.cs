@@ -121,7 +121,7 @@ namespace Datadog.Trace.IntegrationTests
                 OnRequestReceived(ctx);
 
                 // make sure it works correctly
-                var telemetry = DeserializeResponse(ctx);
+                var telemetry = DeserializeResponse(ctx.Request.InputStream);
 
                 // NOTE: HttpStreamRequest doesn't support Transfer-Encoding: Chunked
                 // (Setting content-length avoids that)

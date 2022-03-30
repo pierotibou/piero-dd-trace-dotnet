@@ -41,6 +41,7 @@ namespace Datadog.Trace.Tests.Telemetry
 
             settings.TelemetryUri.Should().Be(expected);
             settings.SendDirectlyToIntake.Should().BeTrue();
+            settings.ConfigurationError.Should().BeNullOrEmpty();
         }
 
         [Fact]
@@ -55,6 +56,7 @@ namespace Datadog.Trace.Tests.Telemetry
 
             settings.TelemetryUri.Should().Be(_defaultAgentUrl);
             settings.SendDirectlyToIntake.Should().BeFalse();
+            settings.ConfigurationError.Should().BeNullOrEmpty();
         }
 
         [Fact]
@@ -70,6 +72,7 @@ namespace Datadog.Trace.Tests.Telemetry
 
             settings.TelemetryUri.Should().Be(_defaultIntakeUrl);
             settings.SendDirectlyToIntake.Should().BeTrue();
+            settings.ConfigurationError.Should().BeNullOrEmpty();
         }
 
         [Fact]
@@ -87,6 +90,7 @@ namespace Datadog.Trace.Tests.Telemetry
 
             settings.TelemetryUri.Should().Be($"https://instrumentation-telemetry-intake.{domain}/");
             settings.SendDirectlyToIntake.Should().BeTrue();
+            settings.ConfigurationError.Should().BeNullOrEmpty();
         }
 
         [Fact]
@@ -103,6 +107,7 @@ namespace Datadog.Trace.Tests.Telemetry
 
             settings.TelemetryUri.Should().Be(_defaultAgentUrl);
             settings.SendDirectlyToIntake.Should().BeFalse();
+            settings.ConfigurationError.Should().BeNullOrEmpty();
         }
 
         [Theory]
@@ -123,6 +128,7 @@ namespace Datadog.Trace.Tests.Telemetry
 
             settings.TelemetryUri.Should().Be(_defaultIntakeUrl);
             settings.SendDirectlyToIntake.Should().BeTrue();
+            settings.ConfigurationError.Should().BeNullOrEmpty();
         }
 
         [Theory]
@@ -143,6 +149,52 @@ namespace Datadog.Trace.Tests.Telemetry
             var settings = new TelemetrySettings(source, _tracerSettings);
 
             settings.TelemetryEnabled.Should().Be(enabled);
+            settings.ConfigurationError.Should().BeNullOrEmpty();
+        }
+
+        [Theory]
+        [InlineData(null, null)]
+        [InlineData(null, true)]
+        [InlineData(null, false)]
+        [InlineData("SOMEKEY", true)]
+        [InlineData("SOMEKEY", false)]
+        public void SetsAgentlessBasedOnApiKey(string apiKey, bool? agentless)
+        {
+            var source = new NameValueConfigurationSource(new NameValueCollection
+            {
+                { ConfigurationKeys.Telemetry.AgentlessEnabled, agentless?.ToString() },
+                { ConfigurationKeys.ApiKey, apiKey },
+            });
+            var hasApiKey = !string.IsNullOrEmpty(apiKey);
+
+            var settings = new TelemetrySettings(source, _tracerSettings);
+
+            if (agentless == true)
+            {
+                settings.TelemetryEnabled.Should().Be(hasApiKey);
+                settings.SendDirectlyToIntake.Should().Be(hasApiKey);
+
+                if (hasApiKey)
+                {
+                    settings.ConfigurationError.Should().BeNullOrEmpty();
+                }
+                else
+                {
+                    settings.ConfigurationError.Should().NotBeNullOrEmpty();
+                }
+            }
+            else if (agentless == false)
+            {
+                settings.TelemetryEnabled.Should().Be(false);
+                settings.SendDirectlyToIntake.Should().Be(false);
+                settings.ConfigurationError.Should().BeNullOrEmpty();
+            }
+            else
+            {
+                settings.TelemetryEnabled.Should().Be(hasApiKey);
+                settings.SendDirectlyToIntake.Should().Be(hasApiKey);
+                settings.ConfigurationError.Should().BeNullOrEmpty();
+            }
         }
     }
 }
