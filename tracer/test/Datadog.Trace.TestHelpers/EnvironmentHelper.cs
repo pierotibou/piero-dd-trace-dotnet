@@ -510,7 +510,7 @@ namespace Datadog.Trace.TestHelpers
 #endif
         }
 
-        public MockTracerAgent GetMockAgent(bool useStatsD = false, int? fixedPort = null)
+        public MockTracerAgent GetMockAgent(bool useStatsD = false, int? fixedPort = null, bool useTelemetry = false)
         {
             MockTracerAgent agent = null;
 
@@ -520,28 +520,28 @@ namespace Datadog.Trace.TestHelpers
             {
                 var tracesUdsPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
                 var metricsUdsPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-                agent = new MockTracerAgent(new UnixDomainSocketConfig(tracesUdsPath, metricsUdsPath) { UseDogstatsD = useStatsD });
+                agent = new MockTracerAgent(new UnixDomainSocketConfig(tracesUdsPath, metricsUdsPath) { UseDogstatsD = useStatsD, UseTelemetry = useTelemetry });
             }
             else if (TransportType == TestTransports.WindowsNamedPipe)
             {
-                agent = new MockTracerAgent(new WindowsPipesConfig($"trace-{Guid.NewGuid()}", $"metrics-{Guid.NewGuid()}") { UseDogstatsD = useStatsD });
+                agent = new MockTracerAgent(new WindowsPipesConfig($"trace-{Guid.NewGuid()}", $"metrics-{Guid.NewGuid()}") { UseDogstatsD = useStatsD, UseTelemetry = useTelemetry });
             }
             else
             {
                 // Default
                 var agentPort = fixedPort ?? TcpPortProvider.GetOpenPort();
-                agent = new MockTracerAgent(agentPort, useStatsd: useStatsD);
+                agent = new MockTracerAgent(agentPort, useStatsd: useStatsD, useTelemetry: useTelemetry);
             }
 #else
             if (TransportType == TestTransports.WindowsNamedPipe)
             {
-                agent = new MockTracerAgent(new WindowsPipesConfig($"trace-{Guid.NewGuid()}", $"metrics-{Guid.NewGuid()}"));
+                agent = new MockTracerAgent(new WindowsPipesConfig($"trace-{Guid.NewGuid()}", $"metrics-{Guid.NewGuid()}") { UseDogstatsD = useStatsD, UseTelemetry = useTelemetry });
             }
             else
             {
                 // Default
                 var agentPort = fixedPort ?? TcpPortProvider.GetOpenPort();
-                agent = new MockTracerAgent(agentPort, useStatsd: useStatsD);
+                agent = new MockTracerAgent(agentPort, useStatsd: useStatsD, useTelemetry: useTelemetry);
             }
 #endif
 
