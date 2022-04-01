@@ -19,7 +19,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
         ReturnTypeName = ClrNames.GenericParameterTask,
         ParameterTypeNames = new[] { "GraphQL.Types.ISchema", "GraphQL.Language.AST.Document", "GraphQL.Language.AST.VariableDefinitions", "System.Collections.Generic.IEnumerable`1[GraphQL.Validation.IValidationRule]", ClrNames.Ignore, "GraphQL.Inputs" },
         MinimumVersion = GraphQLCommon.Major4,
-        MaximumVersion = GraphQLCommon.Major4,
+        MaximumVersion = GraphQLCommon.Major5,
         IntegrationName = GraphQLCommon.IntegrationName)]
     [Browsable(false)]
     [EditorBrowsable(EditorBrowsableState.Never)]

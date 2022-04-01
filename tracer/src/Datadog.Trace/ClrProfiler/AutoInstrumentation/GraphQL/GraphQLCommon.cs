@@ -22,6 +22,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
         internal const string Major2Minor3 = "2.3";
         internal const string Major3 = "3";
         internal const string Major4 = "4";
+        internal const string Major5 = "5";
 
         internal const string IntegrationName = nameof(Configuration.IntegrationId.GraphQL);
         internal const IntegrationId IntegrationId = Configuration.IntegrationId.GraphQL;
