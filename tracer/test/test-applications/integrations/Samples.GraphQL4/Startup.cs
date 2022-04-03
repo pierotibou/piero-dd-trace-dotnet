@@ -25,7 +25,10 @@ namespace Samples.GraphQL4
     {
         public void ConfigureServices(IServiceCollection services)
         {
+#if !GRAPHQL_5_0
+            // Not required in GraphQL 5.0
             services.AddSingleton<IDocumentExecuter, SubscriptionDocumentExecuter>();
+#endif
 
             services.AddSingleton<StarWarsData>();
             services.AddSingleton<StarWarsQuery>();
