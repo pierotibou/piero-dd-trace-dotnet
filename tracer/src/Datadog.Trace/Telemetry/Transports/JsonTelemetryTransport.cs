@@ -46,7 +46,7 @@ internal class JsonTelemetryTransport : ITelemetryTransport
             request.AddHeader(TelemetryConstants.ApiVersionHeader, data.ApiVersion);
             request.AddHeader(TelemetryConstants.RequestTypeHeader, data.RequestType);
 
-            var response = await request.PostAsync(new ArraySegment<byte>(bytes), "application/json").ConfigureAwait(false);
+            using var response = await request.PostAsync(new ArraySegment<byte>(bytes), "application/json").ConfigureAwait(false);
             if (response.StatusCode is >= 200 and < 300)
             {
                 Log.Debug("Telemetry sent successfully");
@@ -75,7 +75,7 @@ internal class JsonTelemetryTransport : ITelemetryTransport
         }
     }
 
-    // Internal for testin
+    // Internal for testing
     internal static string SerializeTelemetry(TelemetryData data)
     {
         return JsonConvert.SerializeObject(data, Formatting.None, SerializerSettings);
