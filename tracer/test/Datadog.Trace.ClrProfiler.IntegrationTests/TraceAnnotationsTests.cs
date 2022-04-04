@@ -93,6 +93,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             using (RunSampleAndWaitForExit(agent))
             {
                 var spans = agent.WaitForSpans(expectedSpanCount, operationName: expectedOperationName);
+                spans.Count.Should().Be(expectedSpanCount);
 
                 var orderedSpans = spans.OrderBy(s => s.Start);
                 var rootSpan = orderedSpans.First();
