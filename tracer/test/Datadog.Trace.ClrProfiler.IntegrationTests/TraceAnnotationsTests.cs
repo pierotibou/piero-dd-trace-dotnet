@@ -68,10 +68,10 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             SetServiceVersion("1.0.0");
             EnableDebugMode();
 
-            var ddTraceMethodsString = "Samples.TraceAnnotations.ProgramHelpers[RunTestsAsync]";
+            var ddTraceMethodsString = "Samples.TraceAnnotations.ProgramHelpers[RunTestsAsync];System.Net.Http.HttpRequestMessage[set_Method]";
             foreach (var type in TestTypes)
             {
-                ddTraceMethodsString += $";{type}[VoidMethod,ReturnValueMethod,ReturnReferenceMethod,ReturnNullMethod,ReturnGenericMethod,ReturnTaskMethod,ReturnValueTaskMethod,ReturnTaskTMethod,ReturnValueTaskTMethod];System.Net.Http.HttpRequestMessage[set_Method]";
+                ddTraceMethodsString += $";{type}[VoidMethod,ReturnValueMethod,ReturnReferenceMethod,ReturnNullMethod,ReturnGenericMethod,ReturnTaskMethod,ReturnValueTaskMethod,ReturnTaskTMethod,ReturnValueTaskTMethod]";
             }
 
             SetEnvironmentVariable("DD_TRACE_METHODS", ddTraceMethodsString);
