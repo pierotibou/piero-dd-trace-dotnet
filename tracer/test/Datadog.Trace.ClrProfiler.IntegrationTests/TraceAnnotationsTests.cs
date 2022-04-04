@@ -66,6 +66,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             : base(sampleAppName, output)
         {
             SetServiceVersion("1.0.0");
+            EnableDebugMode();
 
             var ddTraceMethodsString = "Samples.TraceAnnotations.ProgramHelpers[RunTestsAsync]";
             foreach (var type in TestTypes)
