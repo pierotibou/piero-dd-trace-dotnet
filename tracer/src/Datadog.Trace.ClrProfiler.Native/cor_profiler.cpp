@@ -767,7 +767,7 @@ HRESULT CorProfiler::GetFunctionName(FunctionID function_id, shared::WSTRING* fu
     HRESULT hr = this->info_->GetFunctionInfo(function_id, nullptr, &module_id, &function_token);
     if (FAILED(hr))
     {
-        Logger::Warn("JITCompilationStarted: Call to ICorProfilerInfo4.GetFunctionInfo() failed for ", function_id);
+        *fullName = WStr("[FunctionId=") + shared::ToWSTRING(function_id) = WStr("]");
         return S_OK;
     }
 
@@ -784,6 +784,14 @@ HRESULT CorProfiler::GetFunctionName(FunctionID function_id, shared::WSTRING* fu
     }
 
     *fullName = caller.type.name + WStr(".") + caller.name + WStr("()");
+
+    auto pType = caller.type.parent_type;
+    while (pType != nullptr)
+    {
+        *fullName = caller.type.parent_type->name + WStr(".") + *fullName;
+        pType = pType->parent_type;
+    }
+
     return S_OK;
 }
 
@@ -792,10 +800,10 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function
     auto _ = trace::Stats::Instance()->JITCompilationStartedMeasure();
 
     shared::WSTRING fncFullName;
-    GetFunctionName(function_id, &fncFullName);
-
+    
     if (Logger::IsDebugEnabled())
     {
+        GetFunctionName(function_id, &fncFullName);
         Logger::Debug("JITCompilationStarted: for: ", fncFullName);
     }
 
@@ -1004,8 +1012,14 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITInlining(FunctionID callerId, Function
     if (is_attached_ && rejit_handler != nullptr &&
         rejit_handler->HasModuleAndMethod(calleeModuleId, calleFunctionToken))
     {
-        Logger::Debug("*** JITInlining: Inlining disabled for [ModuleId=", calleeModuleId,
-                      ", MethodDef=", shared::TokenStr(&calleFunctionToken), "]");
+        if (Logger::IsDebugEnabled)
+        {
+            shared::WSTRING fncFullName;
+            GetFunctionName(calleeId, &fncFullName);
+            Logger::Debug("*** JITInlining: Inlining disabled for ", fncFullName, " [ModuleId=", calleeModuleId,
+                          ", MethodDef=", shared::TokenStr(&calleFunctionToken), "]");
+        }
+
         *pfShouldInline = false;
     }
 
@@ -2623,8 +2637,13 @@ HRESULT STDMETHODCALLTYPE CorProfiler::ReJITCompilationStarted(FunctionID functi
         return S_OK;
     }
 
-    Logger::Debug("ReJITCompilationStarted: [functionId: ", functionId, ", rejitId: ", rejitId,
-                  ", safeToBlock: ", fIsSafeToBlock, "]");
+    if (IsDebugEnabled())
+    {
+        shared::WSTRING fncFullName;
+        GetFunctionName(functionId, &fncFullName);
+        Logger::Debug("ReJITCompilationStarted: ", fncFullName, " [functionId: ", functionId, ", rejitId: ", rejitId,
+                      ", safeToBlock: ", fIsSafeToBlock, "]");
+    }
 
     // we notify the reJIT handler of this event
     return rejit_handler->NotifyReJITCompilationStarted(functionId, rejitId);
@@ -2649,7 +2668,10 @@ HRESULT STDMETHODCALLTYPE CorProfiler::ReJITCompilationFinished(FunctionID funct
 {
     if (is_attached_ && IsDebugEnabled())
     {
-        Logger::Debug("ReJITCompilationFinished: [functionId: ", functionId, ", rejitId: ", rejitId,
+        shared::WSTRING fncFullName;
+        GetFunctionName(functionId, &fncFullName);
+
+        Logger::Debug("ReJITCompilationFinished: ", fncFullName, " [functionId: ", functionId, ", rejitId: ", rejitId,
                       ", hrStatus: ", hrStatus, ", safeToBlock: ", fIsSafeToBlock, "]");
     }
 
