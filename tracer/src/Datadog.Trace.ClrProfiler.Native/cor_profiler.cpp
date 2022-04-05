@@ -762,9 +762,18 @@ HRESULT STDMETHODCALLTYPE CorProfiler::ProfilerDetachSucceeded()
 HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function_id, BOOL is_safe_to_block)
 {
     auto _ = trace::Stats::Instance()->JITCompilationStartedMeasure();
+    if (Logger::IsDebugEnabled())
+    {
+        Logger::Debug("JITCompilationStarted: for function_id ", function_id);
+    }
 
     if (!is_attached_ || !is_safe_to_block)
     {
+        if (Logger::IsDebugEnabled())
+        {
+            Logger::Debug("JITCompilationStarted: for function_id ", function_id,
+                          " but is_safe_to_block was FALSE, so exiting");
+        }
         return S_OK;
     }
 
@@ -792,10 +801,22 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function
     // In case is True we create a local ModuleMetadata to inject the loader.
     if (!shared::Contains(module_ids_, module_id))
     {
+        if (Logger::IsDebugEnabled())
+        {
+            Logger::Debug("JITCompilationStarted: module_id ", module_id, " for function_id ", function_id,
+                          " not found in module_ids_, so exiting");
+        }
         return S_OK;
     }
 
     const auto& module_info = GetModuleInfo(this->info_, module_id);
+
+    if (Logger::IsDebugEnabled())
+    {
+        // Loader was already injected in a calltarget scenario, we don't need to do anything else here
+        Logger::Debug("JITCompilationStarted: ModuleId=", module_id, " ModuleName=", module_info.assembly.name,
+                      " for function_id ", function_id);
+    }
 
     bool has_loader_injected_in_appdomain =
         first_jit_compilation_app_domains.find(module_info.assembly.app_domain_id) !=
@@ -803,7 +824,12 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function
 
     if (has_loader_injected_in_appdomain)
     {
-        // Loader was already injected in a calltarget scenario, we don't need to do anything else here
+        if (Logger::IsDebugEnabled())
+        {
+            // Loader was already injected in a calltarget scenario, we don't need to do anything else here
+            Logger::Debug("JITCompilationStarted: ModuleId=", module_id, " ModuleName=", module_info.assembly.name,
+                          " for function_id ", function_id, " loader already injected, so exiting");
+        }
         return S_OK;
     }
 
