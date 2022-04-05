@@ -96,6 +96,8 @@ private:
     //
     void InternalAddInstrumentation(WCHAR* id, CallTargetDefinition* items, int size, bool isDerived);
 
+    HRESULT GetFunctionName(FunctionID function_id, shared::WSTRING* fullName);
+
 public:
     CorProfiler() = default;
 

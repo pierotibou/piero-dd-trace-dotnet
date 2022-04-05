@@ -759,19 +759,51 @@ HRESULT STDMETHODCALLTYPE CorProfiler::ProfilerDetachSucceeded()
     return S_OK;
 }
 
+HRESULT CorProfiler::GetFunctionName(FunctionID function_id, shared::WSTRING* fullName)
+{
+    ModuleID module_id;
+    mdToken function_token = mdTokenNil;
+
+    HRESULT hr = this->info_->GetFunctionInfo(function_id, nullptr, &module_id, &function_token);
+    if (FAILED(hr))
+    {
+        Logger::Warn("JITCompilationStarted: Call to ICorProfilerInfo4.GetFunctionInfo() failed for ", function_id);
+        return S_OK;
+    }
+
+    ComPtr<IUnknown> metadataInterfaces;
+    hr = this->info_->GetModuleMetaData(module_id, ofRead | ofWrite, IID_IMetaDataImport2,
+                                        metadataInterfaces.GetAddressOf());
+
+    const auto& metadataImport = metadataInterfaces.As<IMetaDataImport2>(IID_IMetaDataImport);
+
+    const auto& caller = GetFunctionInfo(metadataImport, function_token);
+    if (!caller.IsValid())
+    {
+        return S_OK;
+    }
+
+    *fullName = caller.type.name + WStr(".") + caller.name + WStr("()");
+    return S_OK;
+}
+
 HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function_id, BOOL is_safe_to_block)
 {
     auto _ = trace::Stats::Instance()->JITCompilationStartedMeasure();
+
+    shared::WSTRING fncFullName;
+    GetFunctionName(function_id, &fncFullName);
+
     if (Logger::IsDebugEnabled())
     {
-        Logger::Debug("JITCompilationStarted: for function_id ", function_id);
+        Logger::Debug("JITCompilationStarted: for: ", fncFullName);
     }
 
     if (!is_attached_ || !is_safe_to_block)
     {
         if (Logger::IsDebugEnabled())
         {
-            Logger::Debug("JITCompilationStarted: for function_id ", function_id,
+            Logger::Debug("JITCompilationStarted: for ", fncFullName,
                           " but is_safe_to_block was FALSE, so exiting");
         }
         return S_OK;
@@ -803,7 +835,7 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function
     {
         if (Logger::IsDebugEnabled())
         {
-            Logger::Debug("JITCompilationStarted: module_id ", module_id, " for function_id ", function_id,
+            Logger::Debug("JITCompilationStarted: module_id ", module_id, " for ", fncFullName,
                           " not found in module_ids_, so exiting");
         }
         return S_OK;
@@ -815,7 +847,7 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function
     {
         // Loader was already injected in a calltarget scenario, we don't need to do anything else here
         Logger::Debug("JITCompilationStarted: ModuleId=", module_id, " ModuleName=", module_info.assembly.name,
-                      " for function_id ", function_id);
+                      " for ", fncFullName);
     }
 
     bool has_loader_injected_in_appdomain =
@@ -828,7 +860,7 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITCompilationStarted(FunctionID function
         {
             // Loader was already injected in a calltarget scenario, we don't need to do anything else here
             Logger::Debug("JITCompilationStarted: ModuleId=", module_id, " ModuleName=", module_info.assembly.name,
-                          " for function_id ", function_id, " loader already injected, so exiting");
+                          " for ", fncFullName, " loader already injected, so exiting");
         }
         return S_OK;
     }
