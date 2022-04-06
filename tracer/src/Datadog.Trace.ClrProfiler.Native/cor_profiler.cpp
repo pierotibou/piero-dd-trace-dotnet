@@ -1012,7 +1012,7 @@ HRESULT STDMETHODCALLTYPE CorProfiler::JITInlining(FunctionID callerId, Function
     if (is_attached_ && rejit_handler != nullptr &&
         rejit_handler->HasModuleAndMethod(calleeModuleId, calleFunctionToken))
     {
-        if (Logger::IsDebugEnabled)
+        if (Logger::IsDebugEnabled())
         {
             shared::WSTRING fncFullName;
             GetFunctionName(calleeId, &fncFullName);
