@@ -158,6 +158,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                     {
                         Output.WriteLine("The process didn't exit in time. Killing it.");
                         process.Kill();
+                        throw new SkipException("The process didn't exit in time");
                     }
                 }
 
