@@ -165,7 +165,7 @@ namespace Datadog.Trace.TestHelpers
                 var procDump = Path.Combine(unpackedDirectory, "procdump.exe");
                 var processId = process.Id;
 
-                var args = $"-ma {processId} ";
+                var args = $"-ma {processId} -accepteula";
                 Output.WriteLine($"Capturing memory dump using '{procDump} {args}'");
 
                 using var procDumpProcess = Process.Start(new ProcessStartInfo(procDump, args)
