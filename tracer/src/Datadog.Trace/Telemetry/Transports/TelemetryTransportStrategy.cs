@@ -36,9 +36,6 @@ internal static class TelemetryTransportStrategy
 
         switch (strategy)
         {
-            case TracesTransportType.CustomTcpProvider:
-                Log.Information("Using {FactoryType} for telemetry transport to agent.", nameof(TcpStreamFactory));
-                return new HttpStreamRequestFactory(new TcpStreamFactory(settings.AgentUri.Host, settings.AgentUri.Port), DatadogHttpClient.CreateTelemetryAgentClient());
             case TracesTransportType.WindowsNamedPipe:
                 Log.Information<string, string, int>("Using {FactoryType} for telemetry transport, with pipe name {PipeName} and timeout {Timeout}ms.", nameof(NamedPipeClientStreamFactory), settings.TracesPipeName, settings.TracesPipeTimeoutMs);
                 return new HttpStreamRequestFactory(new NamedPipeClientStreamFactory(settings.TracesPipeName, settings.TracesPipeTimeoutMs), DatadogHttpClient.CreateTelemetryAgentClient());
