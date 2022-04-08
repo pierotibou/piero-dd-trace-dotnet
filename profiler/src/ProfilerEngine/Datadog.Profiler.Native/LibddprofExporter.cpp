@@ -170,7 +170,7 @@ ddprof_ffi_Profile* LibddprofExporter::GetProfile(std::string_view runtimeId)
 
 void LibddprofExporter::Add(Sample const& sample)
 {
-    auto profile = GetProfile(sample.GetRuntimeId());
+    auto* profile = GetProfile(sample.GetRuntimeId());
 
     auto const& callstack = sample.GetCallstack();
     auto nbFrames = callstack.size();
