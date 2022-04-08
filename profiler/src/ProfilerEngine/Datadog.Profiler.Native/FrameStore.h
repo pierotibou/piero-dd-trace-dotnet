@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_map>
 #include <string>
+#include <string_view>
 #include "IFrameStore.h"
 
 #include "shared/src/native-src/com_ptr.h"
@@ -30,7 +31,7 @@ public:
     FrameStore(ICorProfilerInfo4* pCorProfilerInfo);
 
 public :
-    std::tuple<bool, std::string, std::string> GetFrame(uintptr_t instructionPointer) override;
+    std::tuple<bool, std::string_view, std::string_view> GetFrame(uintptr_t instructionPointer) override;
 
 private:
     bool GetFunctionInfo(
@@ -49,8 +50,8 @@ private:
         ClassID* genericParameters
         );
     bool GetTypeDesc(IMetaDataImport2* pMetadataImport, ClassID classId, ModuleID moduleId, mdTypeDef mdTokenType, TypeDesc& typeDesc);
-    std::pair <std::string, std::string> GetManagedFrame(FunctionID functionId);
-    std::pair <std::string, std::string> GetNativeFrame(uintptr_t instructionPointer);
+    std::pair <std::string_view, std::string_view> GetManagedFrame(FunctionID functionId);
+    std::pair <std::string_view, std::string_view> GetNativeFrame(uintptr_t instructionPointer);
 
 private:  // global helpers
     static bool GetAssemblyName(ICorProfilerInfo4* pInfo, ModuleID moduleId, std::string& assemblyName);
