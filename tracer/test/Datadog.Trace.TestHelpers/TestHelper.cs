@@ -164,13 +164,8 @@ namespace Datadog.Trace.TestHelpers
 
                 var procDump = Path.Combine(unpackedDirectory, "procdump.exe");
                 var processId = process.Id;
-                // writing to logs file, as these will be automatically grabbed and uploaded by the test runner
-                var outputDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                    "Datadog .NET Tracer",
-                    "logs");
 
-                var args = $"-ma {processId} \"{outputDir}\"";
+                var args = $"-ma {processId} ";
                 Output.WriteLine($"Capturing memory dump using '{procDump} {args}'");
 
                 using var procDumpProcess = Process.Start(new ProcessStartInfo(procDump, args)
