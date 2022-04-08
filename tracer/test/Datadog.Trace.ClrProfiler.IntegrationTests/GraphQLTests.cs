@@ -161,7 +161,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                         await TakeMemoryDump(process);
 
                         process.Kill();
-                        throw new SkipException("The process didn't exit in time");
+                        throw new Exception("The process didn't exit in time");
                     }
                 }
 

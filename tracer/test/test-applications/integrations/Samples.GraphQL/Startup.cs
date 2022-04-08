@@ -67,17 +67,17 @@ namespace Samples.GraphQL
             app.UseDeveloperExceptionPage();
             app.UseWelcomePage("/alive-check");
 
-            app.Map("/shutdown", builder =>
-            {
-                builder.Run(async context =>
-                {
-                    await context.Response.WriteAsync("Shutting down");
-
-#pragma warning disable CS0618 // Type or member is obsolete
-                    _ = Task.Run(() => builder.ApplicationServices.GetService<IApplicationLifetime>().StopApplication());
-#pragma warning restore CS0618 // Type or member is obsolete
-                });
-            });
+//             app.Map("/shutdown", builder =>
+//             {
+//                 builder.Run(async context =>
+//                 {
+//                     await context.Response.WriteAsync("Shutting down");
+//
+// #pragma warning disable CS0618 // Type or member is obsolete
+//                     _ = Task.Run(() => builder.ApplicationServices.GetService<IApplicationLifetime>().StopApplication());
+// #pragma warning restore CS0618 // Type or member is obsolete
+//                 });
+//             });
 
             // add http for Schema at default url /graphql
             app.UseGraphQL<ISchema>("/graphql");
