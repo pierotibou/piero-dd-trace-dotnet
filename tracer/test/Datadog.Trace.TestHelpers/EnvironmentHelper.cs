@@ -271,7 +271,11 @@ namespace Datadog.Trace.TestHelpers
 
             // set consistent env name (can be overwritten by custom environment variable)
             environmentVariables["DD_ENV"] = "integration_tests";
-            environmentVariables[ConfigurationKeys.Telemetry.Enabled] = "false";
+            environmentVariables[ConfigurationKeys.Telemetry.Enabled] = agent.TelemetryEnabled.ToString();
+            if (agent.TelemetryEnabled)
+            {
+                environmentVariables[ConfigurationKeys.Telemetry.AgentlessEnabled] = "0";
+            }
 
             // Don't attach the profiler to these processes
             environmentVariables["DD_PROFILER_EXCLUDE_PROCESSES"] =

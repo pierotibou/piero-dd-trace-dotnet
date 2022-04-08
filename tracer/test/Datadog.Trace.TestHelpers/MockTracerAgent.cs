@@ -30,7 +30,6 @@ namespace Datadog.Trace.TestHelpers
         private readonly Task _tracesListenerTask;
         private readonly Task _statsdTask;
         private readonly CancellationTokenSource _cancellationTokenSource;
-        private readonly bool _telemetryEnabled;
 
 #if NETCOREAPP3_1_OR_GREATER
         private readonly UnixDomainSocketEndPoint _tracesEndpoint;
@@ -41,7 +40,7 @@ namespace Datadog.Trace.TestHelpers
         public MockTracerAgent(UnixDomainSocketConfig config)
         {
             _cancellationTokenSource = new CancellationTokenSource();
-            _telemetryEnabled = config.UseTelemetry;
+            TelemetryEnabled = config.UseTelemetry;
 
             ListenerInfo = $"Traces at {config.Traces}";
 
@@ -86,7 +85,7 @@ namespace Datadog.Trace.TestHelpers
         public MockTracerAgent(int port = 8126, int retries = 5, bool useStatsd = false, bool doNotBindPorts = false, int? requestedStatsDPort = null, bool useTelemetry = false)
         {
             _cancellationTokenSource = new CancellationTokenSource();
-            _telemetryEnabled = useTelemetry;
+            TelemetryEnabled = useTelemetry;
             if (doNotBindPorts)
             {
                 // This is for any tests that want to use a specific port but never actually bind
@@ -206,6 +205,8 @@ namespace Datadog.Trace.TestHelpers
         public string StatsWindowsPipeName { get; }
 
         public string Version { get; set; }
+
+        public bool TelemetryEnabled { get; }
 
         /// <summary>
         /// Gets the filters used to filter out spans we don't want to look at for a test.
@@ -609,7 +610,7 @@ namespace Datadog.Trace.TestHelpers
                     using var stream = new NetworkStream(handler);
 
                     var request = await MockHttpParser.ReadRequest(stream);
-                    if (_telemetryEnabled && request.PathAndQuery.StartsWith("/" + TelemetryConstants.AgentTelemetryEndpoint))
+                    if (TelemetryEnabled && request.PathAndQuery.StartsWith("/" + TelemetryConstants.AgentTelemetryEndpoint))
                     {
                         HandlePotentialTelemetryData(request);
                         await stream.WriteAsync(GetResponseBytes(body: null));
@@ -659,7 +660,7 @@ namespace Datadog.Trace.TestHelpers
                         ctx.Response.AddHeader("Datadog-Agent-Version", Version);
                     }
 
-                    if (_telemetryEnabled && (ctx.Request.Url?.AbsolutePath.StartsWith("/" + TelemetryConstants.AgentTelemetryEndpoint) ?? false))
+                    if (TelemetryEnabled && (ctx.Request.Url?.AbsolutePath.StartsWith("/" + TelemetryConstants.AgentTelemetryEndpoint) ?? false))
                     {
                         // telemetry request
                         var telemetry = MockTelemetryAgent<TelemetryData>.DeserializeResponse(ctx.Request.InputStream);

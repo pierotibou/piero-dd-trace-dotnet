@@ -88,8 +88,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             const string expectedOperationName = "trace.annotation";
 
             // Don't bother with telemetry when two assemblies are loaded because we could get unreliable results
-            MockTelemetryAgent<TelemetryData> telemetry = _twoAssembliesLoaded ? null : this.ConfigureTelemetry();
-            using (var agent = EnvironmentHelper.GetMockAgent())
+            using (var agent = EnvironmentHelper.GetMockAgent(useTelemetry: !_twoAssembliesLoaded))
             using (RunSampleAndWaitForExit(agent))
             {
                 var spans = agent.WaitForSpans(expectedSpanCount, operationName: expectedOperationName);
@@ -141,16 +140,17 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                 rootSpan.Start.Should().BeLessThan(remainingSpans.First().Start);
                 (rootSpan.Start + rootSpan.Duration).Should().BeGreaterThan(lastEndTime.Value);
 
-                telemetry?.AssertIntegrationEnabled(IntegrationId.TraceAnnotations);
-                telemetry?.AssertConfiguration(ConfigTelemetryData.TraceMethods);
+                if (!_twoAssembliesLoaded)
+                {
+                    agent.AssertIntegrationEnabled(IntegrationId.TraceAnnotations);
+                    agent.AssertConfiguration(ConfigTelemetryData.TraceMethods);
+                }
 
                 // Run snapshot verification
                 var settings = VerifyHelper.GetSpanVerifierSettings();
                 await Verifier.Verify(orderedSpans, settings)
                               .UseMethodName("_");
             }
-
-            telemetry?.Dispose();
         }
     }
 }
