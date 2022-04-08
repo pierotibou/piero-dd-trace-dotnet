@@ -29,23 +29,3 @@ WallTimeSample::WallTimeSample(
         AddLabel(Label{SpanIdLabel, std::to_string(spanId)});
     }
 }
-
-void WallTimeSample::SetPid(const std::string& pid)
-{
-    AddLabel(Label{ProcessIdLabel, pid});
-}
-
-void WallTimeSample::SetAppDomainName(const std::string& name)
-{
-    AddLabel(Label{AppDomainNameLabel, name});
-}
-
-void WallTimeSample::SetThreadId(const std::string& tid)
-{
-    AddLabel(Label{ThreadIdLabel, tid});
-}
-
-void WallTimeSample::SetThreadName(const std::string& name)
-{
-    AddLabel(Label{ThreadNameLabel, name});
-}

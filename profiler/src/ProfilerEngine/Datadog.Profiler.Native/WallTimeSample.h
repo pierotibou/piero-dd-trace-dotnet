@@ -16,10 +16,17 @@ public:
         );
 
 public:
-    void SetPid(const std::string& pid);
-    void SetAppDomainName(const std::string& name);
-    void SetThreadId(const std::string& tid);
-    void SetThreadName(const std::string& name);
+    template <class TString>
+    void SetPid(TString&& pid);
+
+    template <class TString>
+    void SetAppDomainName(TString&& name);
+
+    template <class TString>
+    void SetThreadId(TString&& tid);
+
+    template <class TString>
+    void SetThreadName(TString&& name);
 
 public:
     static const std::string ThreadIdLabel;
@@ -29,3 +36,27 @@ public:
     static const std::string LocalRootSpanIdLabel;
     static const std::string SpanIdLabel;
 };
+
+template <class TString>
+void WallTimeSample::SetPid(TString&& pid)
+{
+    AddLabel(Label{ProcessIdLabel, std::forward<TString>(pid)});
+}
+
+template <class TString>
+void WallTimeSample::SetAppDomainName(TString&& name)
+{
+    AddLabel(Label{AppDomainNameLabel, std::forward<TString>(name)});
+}
+
+template <class TString>
+void WallTimeSample::SetThreadId(TString&& tid)
+{
+    AddLabel(Label{ThreadIdLabel, std::forward<TString>(tid)});
+}
+
+template <class TString>
+void WallTimeSample::SetThreadName(TString&& name)
+{
+    AddLabel(Label{ThreadNameLabel, std::forward<TString>(name)});
+}
