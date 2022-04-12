@@ -130,7 +130,6 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             using var agent = EnvironmentHelper.GetMockAgent(useTelemetry: true);
 
             SetServiceVersion(serviceVersion);
-            EnableTelemetry();
 
             int httpPort = TcpPortProvider.GetOpenPort();
             Output.WriteLine($"Assigning port {httpPort} for the httpPort.");
