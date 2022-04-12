@@ -439,6 +439,13 @@ namespace Datadog.Trace.TestHelpers
 #if NETCOREAPP3_1_OR_GREATER
         private byte[] GetResponseBytes(string body)
         {
+            if (string.IsNullOrEmpty(body))
+            {
+                // Our DatadogHttpClient can't cope if the response doesn't have a body.
+                // Which isn't great.
+                throw new ArgumentException("Response body must not be null or empty", nameof(body));
+            }
+
             var response = $"HTTP/1.1 200 OK";
             response += DatadogHttpValues.CrLf;
             response += $" Date: {DateTime.UtcNow.ToString("ddd, dd MMM yyyy H:mm::ss K")}";
@@ -453,19 +460,16 @@ namespace Datadog.Trace.TestHelpers
                 response += $"Datadog-Agent-Version: {Version}";
             }
 
-            if (!string.IsNullOrEmpty(body))
-            {
-                var responseBody = Encoding.UTF8.GetBytes(body);
-                var contentLength64 = responseBody.LongLength;
+            var responseBody = Encoding.UTF8.GetBytes(body);
+            var contentLength64 = responseBody.LongLength;
 
-                response += DatadogHttpValues.CrLf;
-                response += $"Content-Type: application/json";
-                response += DatadogHttpValues.CrLf;
-                response += $"Content-Length: {contentLength64}";
-                response += DatadogHttpValues.CrLf;
-                response += DatadogHttpValues.CrLf;
-                response += Encoding.ASCII.GetString(responseBody);
-            }
+            response += DatadogHttpValues.CrLf;
+            response += $"Content-Type: application/json";
+            response += DatadogHttpValues.CrLf;
+            response += $"Content-Length: {contentLength64}";
+            response += DatadogHttpValues.CrLf;
+            response += DatadogHttpValues.CrLf;
+            response += Encoding.ASCII.GetString(responseBody);
 
             var responseBytes = Encoding.UTF8.GetBytes(response);
             return responseBytes;
@@ -613,13 +617,13 @@ namespace Datadog.Trace.TestHelpers
                     if (TelemetryEnabled && request.PathAndQuery.StartsWith("/" + TelemetryConstants.AgentTelemetryEndpoint))
                     {
                         HandlePotentialTelemetryData(request);
-                        await stream.WriteAsync(GetResponseBytes(body: null));
                     }
                     else
                     {
                         HandlePotentialTraces(request);
-                        await stream.WriteAsync(GetResponseBytes("{}"));
                     }
+
+                    await stream.WriteAsync(GetResponseBytes(body: null));
 
                     handler.Shutdown(SocketShutdown.Both);
                 }
