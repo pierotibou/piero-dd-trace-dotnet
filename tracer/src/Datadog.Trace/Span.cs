@@ -343,7 +343,6 @@ namespace Datadog.Trace
 
                 if (!IsFinished)
                 {
-                    Duration = duration;
                     if (Duration < TimeSpan.Zero)
                     {
                         Duration = TimeSpan.Zero;
