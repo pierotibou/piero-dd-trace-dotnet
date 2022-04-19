@@ -343,7 +343,11 @@ namespace Datadog.Trace
 
                 if (!IsFinished)
                 {
-                    Duration = duration;
+                    if (Duration == default)
+                    {
+                        Duration = duration;
+                    }
+
                     if (Duration < TimeSpan.Zero)
                     {
                         Duration = TimeSpan.Zero;
@@ -389,7 +393,7 @@ namespace Datadog.Trace
             StartTime = startTime;
         }
 
-        internal void SetDuration(TimeSpan duration)
+        public void SetDuration(TimeSpan duration)
         {
             Duration = duration;
         }
