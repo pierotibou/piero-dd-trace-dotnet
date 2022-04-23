@@ -388,7 +388,7 @@ namespace Datadog.Trace
             StartTime = startTime;
         }
 
-        internal void SetDuration(TimeSpan duration)
+        public void SetDuration(TimeSpan duration)
         {
             Duration = duration;
         }

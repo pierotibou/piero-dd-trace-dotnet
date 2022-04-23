@@ -271,7 +271,7 @@ namespace Datadog.Trace
         public IScope StartActive(string operationName, SpanCreationSettings settings)
         {
             var finishOnClose = settings.FinishOnClose ?? true;
-            return StartActiveInternal(operationName, settings.Parent, serviceName: null, settings.StartTime, finishOnClose);
+            return StartActiveInternal(operationName, settings.Parent, serviceName: null, settings.StartTime, finishOnClose, finishTime: settings.FinishTime);
         }
 
         /// <summary>
@@ -362,9 +362,14 @@ namespace Datadog.Trace
             return new SpanContext(parent, traceContext, finalServiceName, traceId: traceId, spanId: spanId);
         }
 
-        internal Scope StartActiveInternal(string operationName, ISpanContext parent = null, string serviceName = null, DateTimeOffset? startTime = null, bool finishOnClose = true, ITags tags = null)
+        internal Scope StartActiveInternal(string operationName, ISpanContext parent = null, string serviceName = null, DateTimeOffset? startTime = null, bool finishOnClose = true, ITags tags = null, DateTimeOffset? finishTime = null)
         {
             var span = StartSpan(operationName, tags, parent, serviceName, startTime);
+            if (startTime.HasValue && finishTime.HasValue)
+            {
+                span.SetDuration((finishTime - startTime).Value);
+            }
+
             return TracerManager.ScopeManager.Activate(span, finishOnClose);
         }
 
