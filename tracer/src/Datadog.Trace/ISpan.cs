@@ -90,5 +90,11 @@ namespace Datadog.Trace
         /// <param name="key">The tag's key</param>
         /// <returns> The value for the tag with the key specified, or null if the tag does not exist</returns>
         string GetTag(string key);
+
+        /// <summary>
+        /// Toto
+        /// </summary>
+        /// <param name="duration">Bob</param>
+        void SetDuration(TimeSpan duration);
     }
 }
