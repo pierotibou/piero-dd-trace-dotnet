@@ -1,0 +1,7 @@
+pr:
+  branches:
+    include:
+      - '*' # default
+
+steps:
+- bash: echo "hello world"
