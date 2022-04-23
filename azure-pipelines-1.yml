@@ -16,7 +16,7 @@ steps:
 
 - bash: |
     cd tracer/tools/PipelineMonitor
-    dotnet build
+    dotnet build PipelineMonitor.csproj
 
 - bash: |
     cd tracer/tools/PipelineMonitor
