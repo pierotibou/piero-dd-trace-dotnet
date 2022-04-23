@@ -6,7 +6,9 @@ resources:
     trigger: true # Run when any run of consolidated-pipeline completes
 
 steps:
-- bash: echo $(resources.pipeline.pierotibou.piero-dd-trace-dotnet.runID)
+- bash: |
+    cd $(Build.SourcesDirectory)
+    ls
 
 - task: UseDotNet@2
   displayName: Use .NET 6.0
