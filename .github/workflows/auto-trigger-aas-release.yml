@@ -1,4 +1,4 @@
-name: Auto version bump on release completed
+name: Auto trigger AAS version bump
 
 on:
   release:
