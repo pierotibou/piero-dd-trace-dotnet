@@ -1,4 +1,6 @@
 
+trigger: none
+
 resources:
   pipelines:
   - pipeline: pierotibou.piero-dd-trace-dotnet # Name of the pipeline resource.
@@ -6,8 +8,6 @@ resources:
     trigger: true # Run when any run of consolidated-pipeline completes
 
 steps:
-
-
 
 - bash: dotnet build
   displayName: "Build"
