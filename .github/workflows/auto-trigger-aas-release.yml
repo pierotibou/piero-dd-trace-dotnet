@@ -5,7 +5,7 @@ on:
     types: [published]
 
 jobs:
-  trigger:
+  hastalavista:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger AAS release
