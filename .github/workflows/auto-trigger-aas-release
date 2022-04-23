@@ -1,0 +1,17 @@
+name: Auto version bump on release completed
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger AAS release
+        run: |
+          curl -X POST \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: Bearer $(GITHUB_TOKEN)" \
+          https://api.github.com/repos/pierotibou/datadog=aas=extension/dispatches \
+          -d '{"inputs": {"is_prerelease":"${{github.event.release.prerelease}}", "version":"${{github.event.release.tag_name}}00" }}'
