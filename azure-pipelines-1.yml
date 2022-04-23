@@ -15,9 +15,9 @@ steps:
     version: '6.0.x'
 
 - bash: |
-    cd tracer/tools/PipelineMonitor
-    dotnet build PipelineMonitor.csproj
+    cd ./tracer/tools/PipelineMonitor
+    dotnet build
 
 - bash: |
-    cd tracer/tools/PipelineMonitor
+    cd ./tracer/tools/PipelineMonitor
     dotnet run $(resources.pipeline.consolidated-pipeline.runID)
