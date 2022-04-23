@@ -5,10 +5,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Linq;
 using Datadog.Trace.AppSec;
 using Datadog.Trace.AppSec.Waf;
 using Datadog.Trace.AppSec.Waf.ReturnTypes.Managed;
+using Datadog.Trace.Configuration;
 using Datadog.Trace.Vendors.Newtonsoft.Json;
 using FluentAssertions;
 using Xunit;
@@ -19,7 +21,6 @@ namespace Datadog.Trace.Security.Unit.Tests
     public class WafTests
     {
         [Theory]
-
         [InlineData("[$ne]", "arg", "nosql_injection", "crs-942-290")]
         [InlineData("attack", "appscan_fingerprint", "security_scanner", "crs-913-120")]
         [InlineData("key", "<script>", "xss", "crs-941-100")]
@@ -28,6 +29,26 @@ namespace Datadog.Trace.Security.Unit.Tests
         {
             Execute(
                 AddressesConstants.RequestQuery,
+                new Dictionary<string, string[]>
+                {
+                    {
+                        key, new string[]
+                        {
+                            attack
+                        }
+                    }
+                },
+                flow,
+                rule);
+        }
+
+        [Theory]
+        [InlineData("something", "appscan_fingerprint", "security_scanner", "crs-913-120")]
+        [InlineData("something", "/.htaccess", "lfi", "crs-930-120")]
+        public void PathParamsAttack(string key, string attack, string flow, string rule)
+        {
+            Execute(
+                AddressesConstants.RequestPathParams,
                 new Dictionary<string, string[]>
                 {
                     {
@@ -99,7 +120,6 @@ namespace Datadog.Trace.Security.Unit.Tests
 
         private static void Execute(string address, object value, string flow, string rule)
         {
-            Environment.SetEnvironmentVariable("DD_TRACE_DEBUG", "true");
             var args = new Dictionary<string, object>
             {
                 {
@@ -116,10 +136,11 @@ namespace Datadog.Trace.Security.Unit.Tests
                 args.Add(AddressesConstants.RequestMethod, "GET");
             }
 
-            using var waf = Waf.Create();
+            using var waf = Waf.Create(string.Empty, string.Empty);
             waf.Should().NotBeNull();
             using var context = waf.CreateContext();
-            var result = context.Run(args, 1_000_000);
+            context.AggregateAddresses(args);
+            var result = context.Run(1_000_000);
             result.ReturnCode.Should().Be(ReturnCode.Monitor);
             var resultData = JsonConvert.DeserializeObject<WafMatch[]>(result.Data).FirstOrDefault();
             resultData.Rule.Tags.Type.Should().Be(flow);
