@@ -3,8 +3,8 @@ pr: none
 
 resources:
   pipelines:
-  - pipeline: pierotibou.piero-dd-trace-dotnet # Name of the pipeline resource.
-    source: pierotibou.piero-dd-trace-dotnet # The name of the pipeline referenced by this pipeline resource.
+  - pipeline: consolidated-pipeline # Name of the pipeline resource.
+    source: consolidated-pipeline # The name of the pipeline referenced by this pipeline resource.
     trigger: true # Run when any run of consolidated-pipeline completes
 
 steps:
