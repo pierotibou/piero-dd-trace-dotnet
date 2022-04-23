@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Web;
 using System.Web.Routing;
 #endif
-using Datadog.Trace.AppSec.Transport.Http;
+using Datadog.Trace.AppSec.Transports.Http;
 using Datadog.Trace.Logging;
 using Datadog.Trace.Util.Http;
 using Datadog.Trace.Vendors.Serilog.Events;
@@ -20,39 +20,53 @@ using Microsoft.AspNetCore.Routing;
 
 namespace Datadog.Trace.AppSec
 {
-    internal class InstrumentationGateway
+    internal partial class InstrumentationGateway
     {
         private static readonly IDatadogLogger Log = DatadogLogging.GetLoggerFor<InstrumentationGateway>();
 
-        public event EventHandler<InstrumentationGatewayEventArgs> InstrumentationGatewayEvent;
+        public event EventHandler<InstrumentationGatewaySecurityEventArgs> PathParamsAvailable;
 
-        public void RaiseEvent(HttpContext context, HttpRequest request, Span relatedSpan, RouteData routeData)
+        public event EventHandler<InstrumentationGatewaySecurityEventArgs> EndRequest;
+
+        public event EventHandler<InstrumentationGatewaySecurityEventArgs> BodyAvailable;
+
+        public event EventHandler<InstrumentationGatewayEventArgs> LastChanceToWriteTags;
+
+        public void RaiseEndRequest(HttpContext context, HttpRequest request, Span relatedSpan)
         {
-            try
+            var getEventData = () =>
             {
-                Dictionary<string, object> eventData = null;
-                if (request != null)
-                {
-                    eventData = request.PrepareArgsForWaf(routeData);
-                }
-                else if (routeData?.Values?.Count > 0)
-                {
-                    var routeDataDict = HttpRequestUtils.ConvertRouteValueDictionary(routeData.Values);
-                    eventData = new Dictionary<string, object>() { { AddressesConstants.RequestPathParams, routeDataDict } };
-                }
+                var eventData = request.PrepareArgsForWaf();
+                eventData.Add(AddressesConstants.ResponseStatus, context.Response.StatusCode.ToString());
+                return eventData;
+            };
 
-                if (eventData != null)
-                {
-                    var transport = new HttpTransport(context);
+            RaiseEvent(context, relatedSpan, getEventData, EndRequest);
+        }
 
-                    LogAddressIfDebugEnabled(eventData);
+        public void RaisePathParamsAvailable(HttpContext context, Span relatedSpan, IDictionary<string, object> pathParams) => RaiseEvent(context, relatedSpan, () => new Dictionary<string, object> { { AddressesConstants.RequestPathParams, pathParams } }, PathParamsAvailable);
 
-                    InstrumentationGatewayEvent?.Invoke(this, new InstrumentationGatewayEventArgs(eventData, transport, relatedSpan));
-                }
-            }
-            catch (Exception ex)
+        public void RaiseBodyAvailable(HttpContext context, Span relatedSpan, object body)
+        {
+            var getEventData = () =>
             {
-                Log.Error(ex, "AppSec Error.");
+                var keysAndValues = BodyExtractor.Extract(body);
+                var eventData = new Dictionary<string, object>
+                {
+                    { AddressesConstants.RequestBody, keysAndValues }
+                };
+                return eventData;
+            };
+
+            RaiseEvent(context, relatedSpan, getEventData, BodyAvailable);
+        }
+
+        public void RaiseLastChanceToWriteTags(HttpContext context, Span relatedSpan)
+        {
+            if (LastChanceToWriteTags != null)
+            {
+                var transport = new HttpTransport(context);
+                LastChanceToWriteTags.Invoke(this, new InstrumentationGatewayEventArgs(transport, relatedSpan));
             }
         }
 
@@ -62,8 +76,28 @@ namespace Datadog.Trace.AppSec
             {
                 foreach (var key in args.Keys)
                 {
-                    Log.Debug("Pushing address {Key} to the Instrumentation Gateway.", key);
+                    Log.Debug("DDAS-0008-00: Pushing address {Key} to the Instrumentation Gateway.", key);
                 }
+            }
+        }
+
+        private void RaiseEvent(HttpContext context, Span relatedSpan, Func<IDictionary<string, object>> getEventData, EventHandler<InstrumentationGatewaySecurityEventArgs> eventHandler)
+        {
+            if (eventHandler == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var eventData = getEventData();
+                var transport = new HttpTransport(context);
+                LogAddressIfDebugEnabled(eventData);
+                eventHandler.Invoke(this, new InstrumentationGatewaySecurityEventArgs(eventData, transport, relatedSpan));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "DDAS-0004-00: AppSec failed to process request.");
             }
         }
     }

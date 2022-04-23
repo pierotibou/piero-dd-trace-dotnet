@@ -41,7 +41,7 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers
                     // The type is a Task<>
                     _continuationGenerator = (ContinuationGenerator<TTarget, TReturn>)Activator.CreateInstance(typeof(TaskContinuationGenerator<,,,>).MakeGenericType(typeof(TIntegration), typeof(TTarget), returnType, ContinuationsHelper.GetResultType(returnType)));
                 }
-#if NETCOREAPP3_1 || NET5_0
+#if NETCOREAPP3_1_OR_GREATER
                 else if (genericReturnType == typeof(ValueTask<>))
                 {
                     // The type is a ValueTask<>
@@ -56,7 +56,7 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers
                     // The type is a Task
                     _continuationGenerator = new TaskContinuationGenerator<TIntegration, TTarget, TReturn>();
                 }
-#if NETCOREAPP3_1 || NET5_0
+#if NETCOREAPP3_1_OR_GREATER
                 else if (returnType == typeof(ValueTask))
                 {
                     // The type is a ValueTask
@@ -66,14 +66,14 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers
             }
         }
 
-        internal delegate CallTargetReturn<TReturn> InvokeDelegate(TTarget instance, TReturn returnValue, Exception exception, CallTargetState state);
+        internal delegate CallTargetReturn<TReturn> InvokeDelegate(TTarget instance, TReturn returnValue, Exception exception, in CallTargetState state);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static CallTargetReturn<TReturn> Invoke(TTarget instance, TReturn returnValue, Exception exception, CallTargetState state)
+        internal static CallTargetReturn<TReturn> Invoke(TTarget instance, TReturn returnValue, Exception exception, in CallTargetState state)
         {
             if (_continuationGenerator != null)
             {
-                returnValue = _continuationGenerator.SetContinuation(instance, returnValue, exception, state);
+                returnValue = _continuationGenerator.SetContinuation(instance, returnValue, exception, in state);
 
                 // Restore previous scope and the previous DistributedTrace if there is a continuation
                 // This is used to mimic the ExecutionContext copy from the StateMachine
@@ -86,7 +86,7 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers
 
             if (_invokeDelegate != null)
             {
-                CallTargetReturn<TReturn> returnWrap = _invokeDelegate(instance, returnValue, exception, state);
+                CallTargetReturn<TReturn> returnWrap = _invokeDelegate(instance, returnValue, exception, in state);
                 returnValue = returnWrap.GetReturnValue();
             }
 

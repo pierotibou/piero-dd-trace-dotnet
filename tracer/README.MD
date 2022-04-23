@@ -26,7 +26,8 @@ You can develop the tracer on various environments.
     - .NET desktop development
     - Optional: ASP.NET and web development (to build samples)
   - Individual components
-    - .NET Framework 4.7 targeting pack
+    - When opening a solution, Visual Studio will prompt you to install any missing components.
+      The prompt will appear in the "Solution Explorer". A list of all recommended components can be found in our [.vsconfig](../.vsconfig)-file.
 - [.NET 6.0 SDK](https://dotnet.microsoft.com/download/dotnet/6.0)
   - Optional: [.NET 6.0 x86 SDK](https://dotnet.microsoft.com/download/dotnet/6.0) to run 32-bit tests locally
 - Optional: ASP.NET Core Runtimes to run tests locally
@@ -37,7 +38,7 @@ You can develop the tracer on various environments.
 - Optional: [nuget.exe CLI](https://www.nuget.org/downloads) v5.3 or newer
 - Optional: [WiX Toolset 3.11.1](http://wixtoolset.org/releases/) or newer to build Windows installer (msi)
   - [WiX Toolset Visual Studio Extension](https://wixtoolset.org/releases/) to build installer from Visual Studio
-- Optional: [Docker for Windows](https://docs.docker.com/docker-for-windows/) to build Linux binaries and run integration tests on Linux containers. See [section on Docker Compose](#building-and-running-tests-with-docker-compose).
+- Optional: [Docker for Windows](https://docs.docker.com/docker-for-windows/) to build Linux binaries and run integration tests on Linux containers.
   - Requires Windows 10 (1607 Anniversary Update, Build 14393 or newer)
 
 Microsoft provides [evaluation developer VMs](https://developer.microsoft.com/en-us/windows/downloads/virtual-machines) with Windows and Visual Studio pre-installed.
@@ -68,7 +69,7 @@ For example:
 
 ### Linux
 
-The recommended approach for Linux is to build using Docker. You can use this approach for both Windows and Linux hosts. The _build_in_docker.sh_ script automates building a Docker image with the required dependencies, and running the specified Nuke targets. For example:
+The recommended approach for Linux is to build using Docker. You can use this approach for both Windows and Linux hosts. The _build_in_docker.sh_ script automates building a Docker image with the required dependencies, and running the specified Nuke targets. For example, on Linux:
 
 ```bash
 # Clean and build the main tracer project
@@ -79,6 +80,11 @@ The recommended approach for Linux is to build using Docker. You can use this ap
 
 # Build and run integration tests. Requires BuildTracerHome to have previously been run
 ./build_in_docker.sh BuildAndRunLinuxIntegrationTests
+```
+
+Alternatively, on Windows:
+```powershell
+./build_in_docker.ps1 BuildTracerHome BuildAndRunLinuxIntegrationTests
 ```
 
 ### macOS
@@ -96,8 +102,17 @@ You can use Rider and CLion to develop on macOS. Building and testing can be don
 .\build.sh PackageTracerHome
 
 # Build and run integration tests. Requires BuildTracerHome to have previously been run
-.\build.sh BuildAndRunIntegrationTests
+.\build.sh BuildAndRunLinuxIntegrationTests
+
+# Build and run integration tests filtering on one framework, one set of tests and a sample app.
+.\build.sh BuildAndRunLinuxIntegrationTests --framework "net6.0" --filter "rabbit" --SampleName "Samples.Rabbit"
 ```
+
+## Additional Technical Documentation
+
+* [Implementing an automatic instrumentation](../docs/development/AutomaticInstrumentation.md)
+* [Duck typing: usages, best practices, and benchmarks](../docs/development/DuckTyping.md)
+* [Datadog.Trace NuGet package README](../docs/Datadog.Trace/README.md)
 
 ## Further Reading
 

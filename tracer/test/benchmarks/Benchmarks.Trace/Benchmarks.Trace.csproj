@@ -21,12 +21,17 @@
 
   <ItemGroup>
     <Compile Remove="DuckTyping\DuckTypeMethodBenchmark.cs" />
+    <Compile Remove="DuckTyping\DuckTypeMethodCallComparisonBenchmark.cs" />
     <Compile Remove="DuckTyping\DuckTypeStructCopyValueTypePropertyBenchmark.cs" />
     <Compile Remove="DuckTyping\DuckTypeValueTypeFieldBenchmark.cs" />
     <Compile Remove="DuckTyping\DuckTypeValueTypePropertyBenchmark.cs" />
     <Compile Remove="DuckTyping\ObscureObject.cs" />
   </ItemGroup>
-
+  <ItemGroup>
+    <Content Include="..\..\..\src\Datadog.Trace\AppSec\Waf\rule-set.json">
+      <Link>rule-set.json</Link>
+    </Content>
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.12.1" />
     <PackageReference Include="JetBrains.Profiler.Api" Version="1.1.7" />
@@ -42,7 +47,7 @@
     <ProjectReference Include="..\..\..\src\Datadog.Trace\Datadog.Trace.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition=" '$(TargetFramework)' == 'netcoreapp3.1' ">
+  <ItemGroup Condition=" '$(TargetFrameworkIdentifier)' == '.NETCoreApp' ">
     <!--
     This reference allows us to build the code without precompiler directives,
     but the logic at runtime will never try to use the Registry if it's not available
@@ -56,6 +61,7 @@
 
   <ItemGroup>
     <None Include="DuckTyping\DuckTypeMethodBenchmark.cs" />
+    <None Include="DuckTyping\DuckTypeMethodCallComparisonBenchmark.cs" />
     <None Include="DuckTyping\DuckTypeStructCopyValueTypePropertyBenchmark.cs" />
     <None Include="DuckTyping\DuckTypeValueTypeFieldBenchmark.cs" />
     <None Include="DuckTyping\DuckTypeValueTypePropertyBenchmark.cs" />

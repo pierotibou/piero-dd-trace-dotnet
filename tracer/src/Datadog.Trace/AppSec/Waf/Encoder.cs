@@ -16,10 +16,6 @@ namespace Datadog.Trace.AppSec.Waf
 {
     internal class Encoder
     {
-        private const int MaxStringLength = 4096;
-        private const int MaxObjectDepth = 15;
-        private const int MaxMapOrArrayLength = 1500;
-
         private static readonly IDatadogLogger Log = DatadogLogging.GetLoggerFor(typeof(Encoder));
         private readonly WafNative _wafNative;
 
@@ -46,55 +42,43 @@ namespace Datadog.Trace.AppSec.Waf
             }
         }
 
-        public static ReturnCode DecodeReturnCode(DDWAF_RET_CODE rc)
+        public static ReturnCode DecodeReturnCode(DDWAF_RET_CODE rc) => rc switch
         {
-            switch (rc)
-            {
-                case DDWAF_RET_CODE.DDWAF_ERR_INTERNAL:
-                    return ReturnCode.ErrorInternal;
-                case DDWAF_RET_CODE.DDWAF_ERR_TIMEOUT:
-                    return ReturnCode.ErrorTimeout;
-                case DDWAF_RET_CODE.DDWAF_ERR_INVALID_ARGUMENT:
-                    return ReturnCode.ErrorInvalidArgument;
-                case DDWAF_RET_CODE.DDWAF_ERR_INVALID_OBJECT:
-                    return ReturnCode.ErrorInvalidObject;
-                case DDWAF_RET_CODE.DDWAF_GOOD:
-                    return ReturnCode.Good;
-                case DDWAF_RET_CODE.DDWAF_MONITOR:
-                    return ReturnCode.Monitor;
-                case DDWAF_RET_CODE.DDWAF_BLOCK:
-                    return ReturnCode.Block;
-                default:
-                    throw new Exception($"Unknown return code: {rc}");
-            }
-        }
+            DDWAF_RET_CODE.DDWAF_ERR_INTERNAL => ReturnCode.ErrorInternal,
+            DDWAF_RET_CODE.DDWAF_ERR_INVALID_ARGUMENT => ReturnCode.ErrorInvalidArgument,
+            DDWAF_RET_CODE.DDWAF_ERR_INVALID_OBJECT => ReturnCode.ErrorInvalidObject,
+            DDWAF_RET_CODE.DDWAF_GOOD => ReturnCode.Good,
+            DDWAF_RET_CODE.DDWAF_MONITOR => ReturnCode.Monitor,
+            DDWAF_RET_CODE.DDWAF_BLOCK => ReturnCode.Block,
+            _ => throw new Exception($"Unknown return code: {rc}")
+        };
 
-        private static string TrunacteLongString(string s) => s.Length > MaxStringLength ? s.Substring(0, MaxStringLength) : s;
+        private static string TruncateLongString(string s) =>
+            s.Length > WafConstants.MaxStringLength ? s.Substring(0, WafConstants.MaxStringLength) : s;
 
-        public Obj Encode(object o, List<Obj> argCache) => EncodeInternal(o, argCache, MaxObjectDepth);
+        public Obj Encode(object o, List<Obj> argCache, bool applySafetyLimits) =>
+            EncodeInternal(o, argCache, WafConstants.MaxContainerDepth, applySafetyLimits);
 
-        private Obj EncodeInternal(object o, List<Obj> argCache, int remainingDepth)
+        private Obj EncodeInternal(object o, List<Obj> argCache, int remainingDepth, bool applyLimits)
         {
-            Log.Debug("Encoding type: {Type}", o?.GetType());
-
             var value =
                 o switch
                 {
-                    null => CreateNativeString(string.Empty),
-                    string s => CreateNativeString(s),
-                    JValue jv => CreateNativeString(jv.Value?.ToString() ?? string.Empty),
-                    int i => new Obj(_wafNative.ObjectSigned(i)),
-                    long i => new Obj(_wafNative.ObjectSigned(i)),
-                    uint i => new Obj(_wafNative.ObjectUnsigned(i)),
-                    ulong i => new Obj(_wafNative.ObjectUnsigned(i)),
-                    IEnumerable<KeyValuePair<string, JToken>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth),
-                    IEnumerable<KeyValuePair<string, string>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth),
-                    IEnumerable<KeyValuePair<string, List<string>>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth),
-                    IEnumerable<KeyValuePair<string, string[]>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth),
-                    IEnumerable<KeyValuePair<string, object>> objDict => EncodeDictionary(objDict, argCache, remainingDepth),
-                    IList<JToken> objs => EncodeList(objs.Select(x => (object)x), argCache, remainingDepth),
-                    IList<string> objs => EncodeList(objs.Select(x => (object)x), argCache, remainingDepth),
-                    IList<object> objs => EncodeList(objs, argCache, remainingDepth),
+                    null => CreateNativeString(string.Empty, applyLimits),
+                    string s => CreateNativeString(s, applyLimits),
+                    JValue jv => CreateNativeString(jv.Value?.ToString() ?? string.Empty, applyLimits),
+                    int i => CreateNativeString(i.ToString(), applyLimits),
+                    long i => CreateNativeString(i.ToString(), applyLimits),
+                    uint i => CreateNativeString(i.ToString(), applyLimits),
+                    ulong i => CreateNativeString(i.ToString(), applyLimits),
+                    IEnumerable<KeyValuePair<string, JToken>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth, applyLimits),
+                    IEnumerable<KeyValuePair<string, string>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth, applyLimits),
+                    IEnumerable<KeyValuePair<string, List<string>>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth, applyLimits),
+                    IEnumerable<KeyValuePair<string, string[]>> objDict => EncodeDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), argCache, remainingDepth, applyLimits),
+                    IEnumerable<KeyValuePair<string, object>> objDict => EncodeDictionary(objDict, argCache, remainingDepth, applyLimits),
+                    IList<JToken> objs => EncodeList(objs.Select(x => (object)x), argCache, remainingDepth, applyLimits),
+                    IList<string> objs => EncodeList(objs.Select(x => (object)x), argCache, remainingDepth, applyLimits),
+                    IList<object> objs => EncodeList(objs, argCache, remainingDepth, applyLimits),
                     _ => throw new Exception($"Couldn't encode type: {o?.GetType()}")
                 };
 
@@ -103,41 +87,37 @@ namespace Datadog.Trace.AppSec.Waf
             return value;
         }
 
-        private Obj EncodeList(IEnumerable<object> objEnumerator, List<Obj> argCache, int remainingDepth)
+        private Obj EncodeList(IEnumerable<object> objEnumerator, List<Obj> argCache, int remainingDepth, bool applyLimits)
         {
-            Log.Debug("Encoding list: {Type}", objEnumerator?.GetType());
-
             var arrNat = _wafNative.ObjectArray();
 
-            if (remainingDepth-- <= 0)
+            if (applyLimits && remainingDepth-- <= 0)
             {
                 Log.Warning("EncodeList: object graph too deep, truncating nesting {Items}", string.Join(", ", objEnumerator));
                 return new Obj(arrNat);
             }
 
             var count = objEnumerator is IList<object> objs ? objs.Count : objEnumerator.Count();
-            if (count > MaxMapOrArrayLength)
+            if (applyLimits && count > WafConstants.MaxContainerSize)
             {
-                Log.Warning<int, int>("EncodeList: list too long, it will be truncated, count: {Count}, MaxMapOrArrayLength {MaxMapOrArrayLength}", count, MaxMapOrArrayLength);
-                objEnumerator = objEnumerator.Take(MaxMapOrArrayLength);
+                Log.Warning<int, int>("EncodeList: list too long, it will be truncated, count: {Count}, MaxMapOrArrayLength {MaxMapOrArrayLength}", count, WafConstants.MaxContainerSize);
+                objEnumerator = objEnumerator.Take(WafConstants.MaxContainerSize);
             }
 
             foreach (var o in objEnumerator)
             {
-                var value = EncodeInternal(o, argCache, remainingDepth);
+                var value = EncodeInternal(o, argCache, remainingDepth, applyLimits);
                 _wafNative.ObjectArrayAdd(arrNat, value.RawPtr);
             }
 
             return new Obj(arrNat);
         }
 
-        private Obj EncodeDictionary(IEnumerable<KeyValuePair<string, object>> objDictEnumerator, List<Obj> argCache, int remainingDepth)
+        private Obj EncodeDictionary(IEnumerable<KeyValuePair<string, object>> objDictEnumerator, List<Obj> argCache, int remainingDepth, bool applyLimits)
         {
-            Log.Debug("Encoding dictionary: {Type}", objDictEnumerator?.GetType());
-
             var mapNat = _wafNative.ObjectMap();
 
-            if (remainingDepth-- <= 0)
+            if (applyLimits && remainingDepth-- <= 0)
             {
                 Log.Warning("EncodeDictionary: object graph too deep, truncating nesting {Items}", string.Join(", ", objDictEnumerator.Select(x => $"{x.Key}, {x.Value}")));
                 return new Obj(mapNat);
@@ -145,10 +125,10 @@ namespace Datadog.Trace.AppSec.Waf
 
             var count = objDictEnumerator is IDictionary<string, object> objDict ? objDict.Count : objDictEnumerator.Count();
 
-            if (count > MaxMapOrArrayLength)
+            if (applyLimits && count > WafConstants.MaxContainerSize)
             {
-                Log.Warning<int, int>("EncodeDictionary: list too long, it will be truncated, count: {Count}, MaxMapOrArrayLength {MaxMapOrArrayLength}", count, MaxMapOrArrayLength);
-                objDictEnumerator = objDictEnumerator.Take(MaxMapOrArrayLength);
+                Log.Warning<int, int>("EncodeDictionary: list too long, it will be truncated, count: {Count}, MaxMapOrArrayLength {MaxMapOrArrayLength}", count, WafConstants.MaxContainerSize);
+                objDictEnumerator = objDictEnumerator.Take(WafConstants.MaxContainerSize);
             }
 
             foreach (var o in objDictEnumerator)
@@ -156,7 +136,7 @@ namespace Datadog.Trace.AppSec.Waf
                 var name = o.Key;
                 if (name != null)
                 {
-                    var value = EncodeInternal(o.Value, argCache, remainingDepth);
+                    var value = EncodeInternal(o.Value, argCache, remainingDepth, applyLimits);
                     _wafNative.ObjectMapAdd(mapNat, name, Convert.ToUInt64(name.Length), value.RawPtr);
                 }
                 else
@@ -168,10 +148,13 @@ namespace Datadog.Trace.AppSec.Waf
             return new Obj(mapNat);
         }
 
-        private Obj CreateNativeString(string s)
+        private Obj CreateNativeString(string s, bool applyLimits)
         {
-            s = TrunacteLongString(s);
-            return new Obj(_wafNative.ObjectStringLength(s, Convert.ToUInt64(s.Length)));
+            var encodeString =
+                    applyLimits
+                        ? TruncateLongString(s)
+                        : s;
+            return new Obj(_wafNative.ObjectStringLength(encodeString, Convert.ToUInt64(encodeString.Length)));
         }
 
         public static string FormatArgs(object o)
@@ -195,6 +178,8 @@ namespace Datadog.Trace.AppSec.Waf
                     IEnumerable<KeyValuePair<string, JToken>> objDict => FormatDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), sb),
                     IEnumerable<KeyValuePair<string, string>> objDict => FormatDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), sb),
                     IEnumerable<KeyValuePair<string, List<string>>> objDict => FormatDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), sb),
+                    // dont remove IEnumerable<KeyValuePair<string, string[]>>, it is used for logging cookies which are this type in debug mode
+                    IEnumerable<KeyValuePair<string, string[]>> objDict => FormatDictionary(objDict.Select(x => new KeyValuePair<string, object>(x.Key, x.Value)), sb),
                     IEnumerable<KeyValuePair<string, object>> objDict => FormatDictionary(objDict, sb),
                     IList<JToken> objs => FormatList(objs.Select(x => (object)x), sb),
                     IList<string> objs => FormatList(objs.Select(x => (object)x), sb),

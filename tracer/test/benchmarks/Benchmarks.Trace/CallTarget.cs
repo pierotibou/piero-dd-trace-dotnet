@@ -18,7 +18,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TResult>(TTarget targetInstance, delegate*<TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -44,7 +44,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -59,7 +59,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TResult>(TTarget targetInstance, TArg1 arg1, delegate*<TArg1, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -85,7 +85,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -100,7 +100,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TArg2, TResult>(TTarget targetInstance, TArg1 arg1, TArg2 arg2, delegate*<TArg1, TArg2, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -126,7 +126,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -141,7 +141,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TArg2, TArg3, TResult>(TTarget targetInstance, TArg1 arg1, TArg2 arg2, TArg3 arg3, delegate*<TArg1, TArg2, TArg3, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -167,7 +167,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -182,7 +182,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TArg2, TArg3, TArg4, TResult>(TTarget targetInstance, TArg1 arg1, TArg2 arg2, TArg3 arg3, TArg4 arg4, delegate*<TArg1, TArg2, TArg3, TArg4, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -208,7 +208,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -223,7 +223,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TArg2, TArg3, TArg4, TArg5, TResult>(TTarget targetInstance, TArg1 arg1, TArg2 arg2, TArg3 arg3, TArg4 arg4, TArg5 arg5, delegate*<TArg1, TArg2, TArg3, TArg4, TArg5, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -249,7 +249,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -264,7 +264,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TArg2, TArg3, TArg4, TArg5, TArg6, TResult>(TTarget targetInstance, TArg1 arg1, TArg2 arg2, TArg3 arg3, TArg4 arg4, TArg5 arg5, TArg6 arg6, delegate*<TArg1, TArg2, TArg3, TArg4, TArg5, TArg6, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -290,7 +290,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -305,7 +305,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TArg2, TArg3, TArg4, TArg5, TArg6, TArg7, TResult>(TTarget targetInstance, TArg1 arg1, TArg2 arg2, TArg3 arg3, TArg4 arg4, TArg5 arg5, TArg6 arg6, TArg7 arg7, delegate*<TArg1, TArg2, TArg3, TArg4, TArg5, TArg6, TArg7, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -331,7 +331,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -346,7 +346,7 @@ namespace Benchmarks.Trace
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TResult Run<TIntegration, TTarget, TArg1, TArg2, TArg3, TArg4, TArg5, TArg6, TArg7, TArg8, TResult>(TTarget targetInstance, TArg1 arg1, TArg2 arg2, TArg3 arg3, TArg4 arg4, TArg5 arg5, TArg6 arg6, TArg7 arg7, TArg8 arg8, delegate*<TArg1, TArg2, TArg3, TArg4, TArg5, TArg6, TArg7, TArg8, TResult> bodyCallback)
         {
-            TResult result = default;
+            TResult result = CallTargetInvoker.GetDefaultValue<TResult>();
             CallTargetState state = CallTargetState.GetDefault();
             CallTargetReturn<TResult> cReturn = CallTargetReturn<TResult>.GetDefault();
             Exception exception = null;
@@ -372,7 +372,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget, TResult>(targetInstance, result, exception, in state);
                     result = cReturn.GetReturnValue();
                 }
                 catch (Exception ex)
@@ -416,7 +416,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -454,7 +454,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -492,7 +492,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -530,7 +530,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -568,7 +568,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -606,7 +606,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -644,7 +644,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -682,7 +682,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {
@@ -720,7 +720,7 @@ namespace Benchmarks.Trace
             {
                 try
                 {
-                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, state);
+                    cReturn = CallTargetInvoker.EndMethod<TIntegration, TTarget>(targetInstance, exception, in state);
                 }
                 catch (Exception ex)
                 {

@@ -3,58 +3,18 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2017 Datadog, Inc.
 // </copyright>
 
-// The conditions looks weird, but it seems like _OR_GREATER is not supported yet in all environments
-// We can trim all the additional conditions when this is fixed
-#if NETCOREAPP3_0 || NETCOREAPP3_1 || NET5_0
+#if NETCOREAPP3_0_OR_GREATER
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Threading.Tasks;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace Datadog.Trace.Security.IntegrationTests
 {
-    public class AspNetCore5 : AspNetBase, IDisposable
+    public class AspNetCore5 : AspNetCoreBase, IDisposable
     {
         public AspNetCore5(ITestOutputHelper outputHelper)
             : base("AspNetCore5", outputHelper, "/shutdown")
         {
-        }
-
-        // NOTE: by integrating the latest version of the WAF, blocking was disabled, as it does not support blocking yet
-        [Theory]
-        [InlineData(true, true, HttpStatusCode.OK)]
-        [InlineData(true, false, HttpStatusCode.OK)]
-        [InlineData(false, true, HttpStatusCode.OK)]
-        [InlineData(false, false, HttpStatusCode.OK)]
-        [InlineData(true, false, HttpStatusCode.OK, "/Health/?test&[$slice]")]
-        [Trait("RunOnWindows", "True")]
-        [Trait("Category", "ArmUnsupported")]
-        public async Task TestSecurity(bool enableSecurity, bool enableBlocking, HttpStatusCode expectedStatusCode, string url = DefaultAttackUrl)
-        {
-            var agent = await RunOnSelfHosted(enableSecurity, enableBlocking);
-            await TestBlockedRequestAsync(agent, enableSecurity, expectedStatusCode, 5, url: url, assertOnSpans: new Action<TestHelpers.MockTracerAgent.Span>[]
-            {
-                 s => Assert.Equal("aspnet_core.request", s.Name),
-                 s  => Assert.Equal("Samples.AspNetCore5", s.Service),
-                 s  =>  Assert.Equal("web", s.Type),
-                 s =>
-                 {
-                    var securityTags = new Dictionary<string, string>
-                    {
-                        { "network.client.ip", "127.0.0.1" },
-                        { "http.response.headers.content-type", "text/plain; charset=utf-8" },
-                    };
-                    foreach (var kvp in securityTags)
-                    {
-                        Assert.True(s.Tags.TryGetValue(kvp.Key, out var tagValue), $"The tag {kvp.Key} was not found");
-                        Assert.Equal(kvp.Value, tagValue);
-                    }
-                 },
-            });
         }
     }
 }

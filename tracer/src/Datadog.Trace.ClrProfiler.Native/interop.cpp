@@ -33,9 +33,28 @@ EXTERN_C VOID STDAPICALLTYPE EnableByRefInstrumentation()
     return trace::profiler->EnableByRefInstrumentation();
 }
 
+EXTERN_C VOID STDAPICALLTYPE EnableCallTargetStateByRef()
+{
+    return trace::profiler->EnableCallTargetStateByRef();
+}
+
 EXTERN_C VOID STDAPICALLTYPE AddDerivedInstrumentations(WCHAR* id, trace::CallTargetDefinition* items, int size)
 {
     return trace::profiler->AddDerivedInstrumentations(id, items, size);
+}
+
+EXTERN_C VOID STDAPICALLTYPE AddTraceAttributeInstrumentation(WCHAR* id, WCHAR* integration_assembly_name_ptr,
+                                                              WCHAR* integration_type_name_ptr)
+{
+    return trace::profiler->AddTraceAttributeInstrumentation(id, integration_assembly_name_ptr,
+                                                             integration_type_name_ptr);
+}
+
+EXTERN_C VOID STDAPICALLTYPE InitializeTraceMethods(WCHAR* id, WCHAR* integration_assembly_name_ptr,
+                                                    WCHAR* integration_type_name_ptr, WCHAR* configuration_string_ptr)
+{
+    return trace::profiler->InitializeTraceMethods(id, integration_assembly_name_ptr, integration_type_name_ptr,
+                                                   configuration_string_ptr);
 }
 
 #ifndef _WIN32

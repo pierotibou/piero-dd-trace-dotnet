@@ -21,13 +21,12 @@ namespace Datadog.Trace.Tests.RuntimeMetrics
         public void PushEvents()
         {
             var listener = new Mock<IRuntimeMetricsListener>();
-
             var mutex = new ManualResetEventSlim();
 
             listener.Setup(l => l.Refresh())
                 .Callback(() => mutex.Set());
 
-            using (new RuntimeMetricsWriter(Mock.Of<IDogStatsd>(), TimeSpan.FromMilliseconds(10), (_, d) => listener.Object))
+            using (new RuntimeMetricsWriter(Mock.Of<IDogStatsd>(), TimeSpan.FromMilliseconds(10), (statsd, timeSpan) => listener.Object))
             {
                 Assert.True(mutex.Wait(10000), "Method Refresh() wasn't called on the listener");
             }
@@ -36,9 +35,7 @@ namespace Datadog.Trace.Tests.RuntimeMetrics
         [Fact]
         public void ShouldSwallowFactoryExceptions()
         {
-            Func<IDogStatsd, TimeSpan, IRuntimeMetricsListener> factory = (_, d) => throw new InvalidOperationException("This exception should be caught");
-
-            var writer = new RuntimeMetricsWriter(Mock.Of<IDogStatsd>(), TimeSpan.FromMilliseconds(10), factory);
+            var writer = new RuntimeMetricsWriter(Mock.Of<IDogStatsd>(), TimeSpan.FromMilliseconds(10), (statsd, timeSpan) => throw new InvalidOperationException("This exception should be caught"));
             writer.Dispose();
         }
 
@@ -46,8 +43,9 @@ namespace Datadog.Trace.Tests.RuntimeMetrics
         public void ShouldCaptureFirstChanceExceptions()
         {
             var statsd = new Mock<IDogStatsd>();
+            var listener = new Mock<IRuntimeMetricsListener>();
 
-            using (var writer = new RuntimeMetricsWriter(statsd.Object, TimeSpan.FromMilliseconds(Timeout.Infinite), (_, d) => Mock.Of<IRuntimeMetricsListener>()))
+            using (var writer = new RuntimeMetricsWriter(statsd.Object, TimeSpan.FromMilliseconds(Timeout.Infinite), (statsd, timeSpan) => listener.Object))
             {
                 for (int i = 0; i < 10; i++)
                 {
@@ -106,12 +104,12 @@ namespace Datadog.Trace.Tests.RuntimeMetrics
         public void CleanupResources()
         {
             var statsd = new Mock<IDogStatsd>();
-            var runtimeListener = new Mock<IRuntimeMetricsListener>();
+            var listener = new Mock<IRuntimeMetricsListener>();
 
-            var writer = new RuntimeMetricsWriter(statsd.Object, TimeSpan.FromMilliseconds(Timeout.Infinite), (_, d) => runtimeListener.Object);
+            var writer = new RuntimeMetricsWriter(statsd.Object, TimeSpan.FromMilliseconds(Timeout.Infinite), (statsd, timeSpan) => listener.Object);
             writer.Dispose();
 
-            runtimeListener.Verify(l => l.Dispose(), Times.Once);
+            listener.Verify(l => l.Dispose(), Times.Once);
 
             // Make sure that the writer unsubscribed from the global exception handler
             try

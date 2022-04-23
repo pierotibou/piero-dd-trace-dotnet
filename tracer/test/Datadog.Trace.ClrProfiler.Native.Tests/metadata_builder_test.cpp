@@ -3,7 +3,10 @@
 #include "../../src/Datadog.Trace.ClrProfiler.Native/clr_helpers.h"
 #include "../../src/Datadog.Trace.ClrProfiler.Native/metadata_builder.h"
 
+#include "../../../shared/src/native-src/string.h"
+
 using namespace trace;
+using namespace shared;
 
 class MetadataBuilderTest : public ::testing::Test {
  protected:
@@ -60,7 +63,7 @@ class MetadataBuilderTest : public ::testing::Test {
     const std::vector<IntegrationDefinition> integrations;
     module_metadata_ =
         new ModuleMetadata(metadataImport, metadataEmit, assemblyImport, assemblyEmit, assemblyName, app_domain_id,
-                           module_version_id, std::make_unique<std::vector<IntegrationDefinition>>(integrations), NULL, true);
+                           module_version_id, std::make_unique<std::vector<IntegrationDefinition>>(integrations), NULL, true, true);
 
     mdModule module;
     hr = metadataImport->GetModuleFromScope(&module);

@@ -14,6 +14,7 @@ using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
+using Datadog.Trace.Configuration;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -27,6 +28,11 @@ namespace Datadog.Trace.TestHelpers
     {
         protected TestHelper(string sampleAppName, string samplePathOverrides, ITestOutputHelper output)
             : this(new EnvironmentHelper(sampleAppName, typeof(TestHelper), output, samplePathOverrides), output)
+        {
+        }
+
+        protected TestHelper(string sampleAppName, string samplePathOverrides, ITestOutputHelper output, bool prependSamplesToAppName)
+            : this(new EnvironmentHelper(sampleAppName, typeof(TestHelper), output, samplePathOverrides, prependSamplesToAppName: false), output)
         {
         }
 
@@ -44,7 +50,8 @@ namespace Datadog.Trace.TestHelpers
             Output.WriteLine($"Configuration: {EnvironmentTools.GetBuildConfiguration()}");
             Output.WriteLine($"TargetFramework: {EnvironmentHelper.GetTargetFramework()}");
             Output.WriteLine($".NET Core: {EnvironmentHelper.IsCoreClr()}");
-            Output.WriteLine($"Profiler DLL: {EnvironmentHelper.GetProfilerPath()}");
+            Output.WriteLine($"Tracer Native DLL: {EnvironmentHelper.GetTracerNativeDLLPath()}");
+            Output.WriteLine($"Native Loader DLL: {EnvironmentHelper.GetNativeLoaderPath()}");
         }
 
         protected EnvironmentHelper EnvironmentHelper { get; }
@@ -53,7 +60,7 @@ namespace Datadog.Trace.TestHelpers
 
         protected ITestOutputHelper Output { get; }
 
-        public Process StartDotnetTestSample(int traceAgentPort, string arguments, string packageVersion, int aspNetCorePort, int? statsdPort = null, string framework = "")
+        public Process StartDotnetTestSample(MockTracerAgent agent, string arguments, string packageVersion, int aspNetCorePort, string framework = "")
         {
             // get path to sample app that the profiler will attach to
             string sampleAppPath = EnvironmentHelper.GetTestCommandForSampleApplicationPath(packageVersion, framework);
@@ -71,16 +78,15 @@ namespace Datadog.Trace.TestHelpers
             return ProfilerHelper.StartProcessWithProfiler(
                 exec,
                 EnvironmentHelper,
+                agent,
                 $"{appPath} {arguments ?? string.Empty}",
-                traceAgentPort: traceAgentPort,
-                statsdPort: statsdPort,
                 aspNetCorePort: aspNetCorePort,
                 processToProfile: exec + ";testhost.exe");
         }
 
-        public ProcessResult RunDotnetTestSampleAndWaitForExit(int traceAgentPort, int? statsdPort = null, string arguments = null, string packageVersion = "", string framework = "")
+        public ProcessResult RunDotnetTestSampleAndWaitForExit(MockTracerAgent agent, string arguments = null, string packageVersion = "", string framework = "")
         {
-            var process = StartDotnetTestSample(traceAgentPort, arguments, packageVersion, aspNetCorePort: 5000, statsdPort: statsdPort, framework: framework);
+            var process = StartDotnetTestSample(agent, arguments, packageVersion, aspNetCorePort: 5000, framework: framework);
 
             using var helper = new ProcessHelper(process);
 
@@ -108,7 +114,7 @@ namespace Datadog.Trace.TestHelpers
             return new ProcessResult(process, standardOutput, standardError, exitCode);
         }
 
-        public Process StartSample(int traceAgentPort, string arguments, string packageVersion, int aspNetCorePort, int? statsdPort = null, string framework = "")
+        public Process StartSample(MockTracerAgent agent, string arguments, string packageVersion, int aspNetCorePort, string framework = "")
         {
             // get path to sample app that the profiler will attach to
             string sampleAppPath = EnvironmentHelper.GetSampleApplicationPath(packageVersion, framework);
@@ -124,16 +130,86 @@ namespace Datadog.Trace.TestHelpers
             return ProfilerHelper.StartProcessWithProfiler(
                 executable,
                 EnvironmentHelper,
+                agent,
                 args,
-                traceAgentPort: traceAgentPort,
-                statsdPort: statsdPort,
                 aspNetCorePort: aspNetCorePort,
                 processToProfile: executable);
         }
 
-        public ProcessResult RunSampleAndWaitForExit(int traceAgentPort, int? statsdPort = null, string arguments = null, string packageVersion = "", string framework = "", int aspNetCorePort = 5000)
+        public async Task TakeMemoryDump(Process process)
         {
-            var process = StartSample(traceAgentPort, arguments, packageVersion, aspNetCorePort: aspNetCorePort, statsdPort: statsdPort, framework: framework);
+            // We don't know if procdump is available, so download it fresh
+            if (!EnvironmentTools.IsWindows())
+            {
+                Output.WriteLine("Not running on windows, skipping memory dump");
+                return;
+            }
+
+            try
+            {
+                const string url = @"https://download.sysinternals.com/files/Procdump.zip";
+                var client = new HttpClient();
+                var zipFilePath = Path.GetTempFileName();
+                Output.WriteLine($"Downloading Procdump to '{zipFilePath}'");
+                using (var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+                {
+                    using var bodyStream = await response.Content.ReadAsStreamAsync();
+                    using Stream streamToWriteTo = File.Open(zipFilePath, FileMode.Create);
+                    await bodyStream.CopyToAsync(streamToWriteTo);
+                }
+
+                var unpackedDirectory = Path.Combine(Path.GetTempPath(), Path.GetFileNameWithoutExtension(Path.GetTempFileName()));
+                Output.WriteLine($"Procdump downloaded. Unpacking to '{unpackedDirectory}'");
+                System.IO.Compression.ZipFile.ExtractToDirectory(zipFilePath, unpackedDirectory);
+
+                var procDump = Path.Combine(unpackedDirectory, "procdump.exe");
+                var processId = process.Id;
+
+                var args = $"-ma {processId} -accepteula";
+                Output.WriteLine($"Capturing memory dump using '{procDump} {args}'");
+
+                using var procDumpProcess = Process.Start(new ProcessStartInfo(procDump, args)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                });
+
+                procDumpProcess.OutputDataReceived += (sender, args) =>
+                {
+                    if (args.Data != null)
+                    {
+                        Output.WriteLine($"[procdump][stdout] {args.Data}");
+                    }
+                };
+                procDumpProcess.BeginOutputReadLine();
+
+                procDumpProcess.ErrorDataReceived += (sender, args) =>
+                {
+                    if (args.Data != null)
+                    {
+                        Output.WriteLine($"[procdump][stderr] {args.Data}");
+                    }
+                };
+                procDumpProcess.BeginErrorReadLine();
+
+                if (!procDumpProcess.HasExited)
+                {
+                    procDumpProcess.WaitForExit(30_000);
+                }
+
+                Output.WriteLine($"Memory dump captured using '{procDump} {args}'");
+            }
+            catch (Exception ex)
+            {
+                Output.WriteLine("Error taking memory dump: " + ex);
+            }
+        }
+
+        public ProcessResult RunSampleAndWaitForExit(MockTracerAgent agent, string arguments = null, string packageVersion = "", string framework = "", int aspNetCorePort = 5000)
+        {
+            var process = StartSample(agent, arguments, packageVersion, aspNetCorePort: aspNetCorePort, framework: framework);
 
             using var helper = new ProcessHelper(process);
 
@@ -165,13 +241,20 @@ namespace Datadog.Trace.TestHelpers
                 throw new SkipException("Segmentation fault on .NET Core 2.1");
             }
 #endif
+            if (exitCode == 134
+             && standardError?.Contains("System.Threading.AbandonedMutexException: The wait completed due to an abandoned mutex") == true
+             && standardError?.Contains("Coverlet.Core.Instrumentation.Tracker") == true)
+            {
+                // Coverlet occasionally throws AbandonedMutexException during clean up
+                throw new SkipException("Coverlet threw AbandonedMutexException during cleanup");
+            }
 
             Assert.True(exitCode >= 0, $"Process exited with code {exitCode}");
 
             return new ProcessResult(process, standardOutput, standardError, exitCode);
         }
 
-        public (Process Process, string ConfigFile) StartIISExpress(int traceAgentPort, int iisPort, IisAppType appType)
+        public (Process Process, string ConfigFile) StartIISExpress(MockTracerAgent agent, int iisPort, IisAppType appType)
         {
             var iisExpress = EnvironmentHelper.GetIisExpressPath();
 
@@ -227,9 +310,9 @@ namespace Datadog.Trace.TestHelpers
             var process = ProfilerHelper.StartProcessWithProfiler(
                 iisExpress,
                 EnvironmentHelper,
+                agent,
                 arguments: string.Join(" ", args),
                 redirectStandardInput: true,
-                traceAgentPort: traceAgentPort,
                 processToProfile: appType == IisAppType.AspNetCoreOutOfProcess ? "dotnet.exe" : iisExpress);
 
             var wh = new EventWaitHandle(false, EventResetMode.AutoReset);
@@ -285,7 +368,12 @@ namespace Datadog.Trace.TestHelpers
             return (process, newConfig);
         }
 
-        protected void ValidateSpans<T>(IEnumerable<MockTracerAgent.Span> spans, Func<MockTracerAgent.Span, T> mapper, IEnumerable<T> expected)
+        public void SetEnvironmentVariable(string key, string value)
+        {
+            EnvironmentHelper.CustomEnvironmentVariables.Add(key, value);
+        }
+
+        protected void ValidateSpans<T>(IEnumerable<MockSpan> spans, Func<MockSpan, T> mapper, IEnumerable<T> expected)
         {
             var spanLookup = new Dictionary<T, int>();
             foreach (var span in spans)
@@ -329,11 +417,6 @@ namespace Datadog.Trace.TestHelpers
             EnvironmentHelper.DebugModeEnabled = true;
         }
 
-        protected void SetEnvironmentVariable(string key, string value)
-        {
-            EnvironmentHelper.CustomEnvironmentVariables.Add(key, value);
-        }
-
         protected void SetServiceVersion(string serviceVersion)
         {
             SetEnvironmentVariable("DD_VERSION", serviceVersion);
@@ -341,15 +424,18 @@ namespace Datadog.Trace.TestHelpers
 
         protected void SetSecurity(bool security)
         {
-            SetEnvironmentVariable(Configuration.ConfigurationKeys.AppSecEnabled, security ? "true" : "false");
+            SetEnvironmentVariable(Configuration.ConfigurationKeys.AppSec.Enabled, security ? "true" : "false");
         }
 
-        protected void SetAppSecBlockingEnabled(bool appSecBlockingEnabled)
+        protected void EnableDirectLogSubmission(int intakePort, string integrationName, string host = "integration_tests")
         {
-            SetEnvironmentVariable(Configuration.ConfigurationKeys.AppSecBlockingEnabled, appSecBlockingEnabled ? "true" : "false");
+            SetEnvironmentVariable(ConfigurationKeys.DirectLogSubmission.Host, host);
+            SetEnvironmentVariable(ConfigurationKeys.DirectLogSubmission.Url, $"http://127.0.0.1:{intakePort}");
+            SetEnvironmentVariable(ConfigurationKeys.DirectLogSubmission.EnabledIntegrations, integrationName);
+            SetEnvironmentVariable(ConfigurationKeys.ApiKey, "DUMMY_KEY_REQUIRED_FOR_DIRECT_SUBMISSION");
         }
 
-        protected async Task<IImmutableList<MockTracerAgent.Span>> GetWebServerSpans(
+        protected async Task<IImmutableList<MockSpan>> GetWebServerSpans(
             string path,
             MockTracerAgent agent,
             int httpPort,
@@ -395,7 +481,7 @@ namespace Datadog.Trace.TestHelpers
             string expectedServiceVersion,
             SerializableDictionary expectedTags = null)
         {
-            IImmutableList<MockTracerAgent.Span> spans;
+            IImmutableList<MockSpan> spans;
 
             using (var httpClient = new HttpClient())
             {
@@ -417,8 +503,8 @@ namespace Datadog.Trace.TestHelpers
                 Assert.True(spans.Count == 2, $"expected two span, saw {spans.Count}");
             }
 
-            MockTracerAgent.Span aspnetSpan = spans.Where(s => s.Name == "aspnet.request").FirstOrDefault();
-            MockTracerAgent.Span innerSpan = spans.Where(s => s.Name == expectedOperationName).FirstOrDefault();
+            var aspnetSpan = spans.FirstOrDefault(s => s.Name == "aspnet.request");
+            var innerSpan = spans.FirstOrDefault(s => s.Name == expectedOperationName);
 
             Assert.NotNull(aspnetSpan);
             Assert.Equal(expectedAspNetResourceName, aspnetSpan.Resource);
@@ -426,7 +512,7 @@ namespace Datadog.Trace.TestHelpers
             Assert.NotNull(innerSpan);
             Assert.Equal(expectedResourceName, innerSpan.Resource);
 
-            foreach (MockTracerAgent.Span span in spans)
+            foreach (var span in spans)
             {
                 // base properties
                 Assert.Equal(expectedSpanType, span.Type);
@@ -470,7 +556,7 @@ namespace Datadog.Trace.TestHelpers
             string expectedResourceName,
             string expectedServiceVersion)
         {
-            IImmutableList<MockTracerAgent.Span> spans;
+            IImmutableList<MockSpan> spans;
 
             using (var httpClient = new HttpClient())
             {
@@ -491,7 +577,7 @@ namespace Datadog.Trace.TestHelpers
                 Assert.True(spans.Count == 1, $"expected two span, saw {spans.Count}");
             }
 
-            MockTracerAgent.Span span = spans[0];
+            var span = spans[0];
 
             // base properties
             Assert.Equal(expectedResourceName, span.Resource);
@@ -507,7 +593,7 @@ namespace Datadog.Trace.TestHelpers
             Assert.Equal(expectedServiceVersion, span.Tags.GetValueOrDefault(Tags.Version));
         }
 
-        private bool IsServerSpan(MockTracerAgent.Span span) =>
+        private bool IsServerSpan(MockSpan span) =>
             span.Tags.GetValueOrDefault(Tags.SpanKind) == SpanKinds.Server;
 
         protected internal class TupleList<T1, T2> : List<Tuple<T1, T2>>

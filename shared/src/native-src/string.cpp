@@ -53,4 +53,24 @@ namespace shared {
         return WSTRING(reinterpret_cast<const WCHAR*>(std::to_wstring(i).c_str()));
     }
 
+    bool TryParse(WSTRING const& s, int& result) {
+
+        if (s.empty())
+        {
+            result = 0;
+            return false;
+        }
+        try
+        {
+            result = std::stoi(ToString(s));
+            return true;
+        }
+        catch (std::exception const&)
+        {
+        }
+
+        result = 0;
+        return false;
+    }
+
 }  // namespace trace

@@ -13,7 +13,15 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Redis.StackExchange
     /// <summary>
     /// StackExchange.Redis.RedisBase.ExecuteSync[T] calltarget instrumentation
     /// </summary>
-    [RedisExecuteSyncInstrumentMethod(TypeName = "StackExchange.Redis.RedisBase")]
+    [InstrumentMethod(
+        AssemblyNames = new string[] { "StackExchange.Redis", "StackExchange.Redis.StrongName" },
+        MethodName = "ExecuteSync",
+        ReturnTypeName = "T",
+        ParameterTypeNames = new[] { "StackExchange.Redis.Message", "StackExchange.Redis.ResultProcessor`1[!!0]", "StackExchange.Redis.ServerEndPoint" },
+        MinimumVersion = "1.0.0",
+        MaximumVersion = "2.*.*",
+        IntegrationName = nameof(IntegrationId.StackExchangeRedis),
+        TypeName = "StackExchange.Redis.RedisBase")]
     [Browsable(false)]
     [EditorBrowsable(EditorBrowsableState.Never)]
     public class RedisExecuteSyncIntegration
@@ -58,7 +66,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Redis.StackExchange
         /// <param name="exception">Exception instance in case the original code threw an exception.</param>
         /// <param name="state">Calltarget state value</param>
         /// <returns>A response value, in an async scenario will be T of Task of T</returns>
-        internal static CallTargetReturn<TResponse> OnMethodEnd<TTarget, TResponse>(TTarget instance, TResponse response, Exception exception, CallTargetState state)
+        internal static CallTargetReturn<TResponse> OnMethodEnd<TTarget, TResponse>(TTarget instance, TResponse response, Exception exception, in CallTargetState state)
         {
             state.Scope.DisposeWithException(exception);
             return new CallTargetReturn<TResponse>(response);

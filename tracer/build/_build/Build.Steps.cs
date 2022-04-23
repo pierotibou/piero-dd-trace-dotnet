@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -34,23 +33,25 @@ partial class Build
     [Solution("Datadog.Trace.sln")] readonly Solution Solution;
     AbsolutePath TracerDirectory => RootDirectory / "tracer";
     AbsolutePath SharedDirectory => RootDirectory / "shared";
-    AbsolutePath ProfilerDirectory => ProfilerSrcDirectory ?? RootDirectory / ".." / "dd-continuous-profiler-dotnet";
+    AbsolutePath ProfilerDirectory => RootDirectory / "profiler";
     AbsolutePath MsBuildProject => TracerDirectory / "Datadog.Trace.proj";
 
     AbsolutePath OutputDirectory => TracerDirectory / "bin";
-    AbsolutePath TracerHomeDirectory => TracerHome ?? (OutputDirectory / "tracer-home");
+    AbsolutePath TracerHomeDirectory => TracerHome ?? (MonitoringHomeDirectory / "tracer");
     AbsolutePath SymbolsDirectory => TracerHome ?? (OutputDirectory / "symbols");
     AbsolutePath DDTracerHomeDirectory => DDTracerHome ?? (OutputDirectory / "dd-tracer-home");
     AbsolutePath ArtifactsDirectory => Artifacts ?? (OutputDirectory / "artifacts");
     AbsolutePath WindowsTracerHomeZip => ArtifactsDirectory / "windows-tracer-home.zip";
     AbsolutePath WindowsSymbolsZip => ArtifactsDirectory / "windows-native-symbols.zip";
     AbsolutePath BuildDataDirectory => TracerDirectory / "build_data";
+    AbsolutePath ToolSourceDirectory => ToolSource ?? (OutputDirectory / "runnerTool");
+    AbsolutePath ToolInstallDirectory => ToolDestination ?? (ToolSourceDirectory / "install");
 
     AbsolutePath MonitoringHomeDirectory => MonitoringHome ?? (SharedDirectory / "bin" / "monitoring-home");
 
-    AbsolutePath ProfilerHomeDirectory => ProfilerHome ?? RootDirectory / ".." / "_build" / "DDProf-Deploy";
+    AbsolutePath ProfilerHomeDirectory => ProfilerHome ?? RootDirectory / "profiler" / "_build" / "DDProf-Deploy";
 
-    const string LibDdwafVersion = "1.0.14";
+    const string LibDdwafVersion = "1.3.0";
     AbsolutePath LibDdwafDirectory => (NugetPackageDirectory ?? RootDirectory / "packages") / $"libddwaf.{LibDdwafVersion}";
 
     AbsolutePath SourceDirectory => TracerDirectory / "src";
@@ -76,6 +77,7 @@ partial class Build
     [LazyPathExecutable(name: "fpm")] readonly Lazy<Tool> Fpm;
     [LazyPathExecutable(name: "gzip")] readonly Lazy<Tool> GZip;
     [LazyPathExecutable(name: "cmd")] readonly Lazy<Tool> Cmd;
+    [LazyPathExecutable(name: "chmod")] readonly Lazy<Tool> Chmod;
 
     IEnumerable<MSBuildTargetPlatform> ArchitecturesForPlatform =>
         Equals(TargetPlatform, MSBuildTargetPlatform.x64)
@@ -91,12 +93,14 @@ partial class Build
     {
         Solution.GetProject(Projects.DatadogTrace),
         Solution.GetProject(Projects.DatadogTraceOpenTracing),
+        Solution.GetProject(Projects.DatadogTraceAnnotations),
     };
 
     Project[] ParallelIntegrationTests => new[]
     {
         Solution.GetProject(Projects.TraceIntegrationTests),
         Solution.GetProject(Projects.OpenTracingIntegrationTests),
+        Solution.GetProject(Projects.ToolIntegrationTests)
     };
 
     Project[] ClrProfilerIntegrationTests => new[]
@@ -110,6 +114,7 @@ partial class Build
         TargetFramework.NET461,
         TargetFramework.NETSTANDARD2_0,
         TargetFramework.NETCOREAPP3_1,
+        TargetFramework.NET6_0,
     };
 
     Target CreateRequiredDirectories => _ => _
@@ -290,7 +295,6 @@ partial class Build
         .Unlisted()
         .After(Clean)
         .After(DownloadLibDdwaf)
-        .OnlyWhenStatic(() => !IsArm64) // not supported yet
         .Executes(() =>
         {
             if (IsWin)
@@ -320,40 +324,44 @@ partial class Build
         .Unlisted()
         .After(Clean)
         .After(DownloadLibDdwaf)
-        .OnlyWhenStatic(() => !IsArm64)// not supported yet
         .Executes(() =>
         {
             var project = Solution.GetProject(Projects.AppSecUnitTests);
-            var directory = project.Directory;
-            var targetFrameworks = project.GetTargetFrameworks();
-            if (IsWin)
-            {
-                foreach (var architecture in WafWindowsArchitectureFolders)
-                {
-                    CopyWaf(architecture, targetFrameworks, directory, "ddwaf", "dll");
-                }
-            }
-            else
-            {
-                var (architecture, ext) = GetUnixArchitectureAndExtension();
-                CopyWaf(architecture, targetFrameworks, directory, "libddwaf", ext);
-            }
-
-            void CopyWaf(string architecture, IEnumerable<string> frameworks, AbsolutePath absolutePath, string wafFileName, string extension)
-            {
-                var source = LibDdwafDirectory / "runtimes" / architecture / "native" / $"{wafFileName}.{extension}";
-                var nativeDir = DDTracerHomeDirectory / architecture / $"Datadog.Trace.ClrProfiler.Native.{extension}";
-                foreach (var fmk in frameworks)
-                {
-                    var dest = absolutePath / "bin" / BuildConfiguration / fmk / architecture;
-                    CopyFileToDirectory(source, dest, FileExistsPolicy.Overwrite);
-                    if (!IsWin)
-                    {
-                        CopyFileToDirectory(nativeDir, absolutePath / "bin" / BuildConfiguration / fmk, FileExistsPolicy.Overwrite);
-                    }
-                }
-            }
+            CopyWafForProject(project);
         });
+
+    private void CopyWafForProject(Project project)
+    {
+        var directory = project.Directory;
+        var targetFrameworks = project.GetTargetFrameworks();
+        if (IsWin)
+        {
+            foreach (var architecture in WafWindowsArchitectureFolders)
+            {
+                CopyWaf(architecture, targetFrameworks, directory, "ddwaf", "dll");
+            }
+        }
+        else
+        {
+            var (architecture, ext) = GetUnixArchitectureAndExtension();
+            CopyWaf(architecture, targetFrameworks, directory, "libddwaf", ext);
+        }
+
+        void CopyWaf(string architecture, IEnumerable<string> frameworks, AbsolutePath absolutePath, string wafFileName, string extension)
+        {
+            var source = LibDdwafDirectory / "runtimes" / architecture / "native" / $"{wafFileName}.{extension}";
+            var nativeDir = DDTracerHomeDirectory / architecture / $"Datadog.Trace.ClrProfiler.Native.{extension}";
+            foreach (var fmk in frameworks)
+            {
+                var dest = absolutePath / "bin" / BuildConfiguration / fmk / architecture;
+                CopyFileToDirectory(source, dest, FileExistsPolicy.Overwrite);
+                if (!IsWin)
+                {
+                    CopyFileToDirectory(nativeDir, absolutePath / "bin" / BuildConfiguration / fmk, FileExistsPolicy.Overwrite);
+                }
+            }
+        }
+    }
 
     Target PublishManagedProfiler => _ => _
         .Unlisted()
@@ -480,41 +488,16 @@ partial class Build
                DDTracerHomeDirectory / profilerFileName,
                outputDir / profilerFileName);
 
-           // won't exist yet for arm64 builds
            var srcDdwafFile = DDTracerHomeDirectory / ddwafFileName;
-           if (File.Exists(srcDdwafFile))
-           {
-               MoveFile(
-                   srcDdwafFile,
-                   DDTracerHomeDirectory / architecture / ddwafFileName);
-           }
+           MoveFile(
+               srcDdwafFile,
+               DDTracerHomeDirectory / architecture / ddwafFileName);
        });
 
     Target BuildMsi => _ => _
         .Unlisted()
-        .Description("Builds the .msi files from the compiled tracer home directory")
-        .After(BuildTracerHome)
-        .OnlyWhenStatic(() => IsWin)
-        .Executes(() =>
-        {
-            MSBuild(s => s
-                    .SetTargetPath(Solution.GetProject(Projects.WindowsInstaller))
-                    .SetConfiguration(BuildConfiguration)
-                    .SetMSBuildPath()
-                    .AddProperty("RunWixToolsOutOfProc", true)
-                    .SetProperty("TracerHomeDirectory", TracerHomeDirectory)
-                    .SetProperty("LibDdwafDirectory", LibDdwafDirectory)
-                    .SetMaxCpuCount(null)
-                    .CombineWith(ArchitecturesForPlatform, (o, arch) => o
-                        .SetProperty("MsiOutputPath", ArtifactsDirectory / arch.ToString())
-                        .SetTargetPlatform(arch)),
-                degreeOfParallelism: 2);
-        });
-
-    Target BuildMsiBeta => _ => _
-        .Unlisted()
         .Description("Builds the .msi files from the repo")
-        .After(BuildTracerHome, BuildProfilerHome, BuildMonitoringHome)
+        .After(BuildTracerHome, BuildProfilerHome, BuildNativeLoader)
         .OnlyWhenStatic(() => IsWin)
         .Executes(() =>
         {
@@ -556,15 +539,20 @@ partial class Build
     Target CreatePlatformlessSymlinks => _ => _
         .Description("Copies the build output from 'All CPU' platforms to platform-specific folders")
         .Unlisted()
+        .OnlyWhenStatic(() => IsWin)
         .After(CompileManagedSrc)
         .After(CompileDependencyLibs)
         .After(CompileManagedTestHelpers)
+        .After(BuildRunnerTool)
         .Executes(() =>
         {
             // create junction for each directory
             var directories = TracerDirectory.GlobDirectories(
+                $"src/**/obj/{BuildConfiguration}",
                 $"src/**/bin/{BuildConfiguration}",
-                $"tools/**/bin/{BuildConfiguration}",
+                $"src/Datadog.Trace.Tools.Runner/obj/{BuildConfiguration}",
+                $"src/Datadog.Trace.Tools.Runner/bin/{BuildConfiguration}",
+                $"test/Datadog.Trace.TestHelpers/**/obj/{BuildConfiguration}",
                 $"test/Datadog.Trace.TestHelpers/**/bin/{BuildConfiguration}",
                 $"test/test-applications/integrations/dependency-libs/**/bin/{BuildConfiguration}"
             );
@@ -626,14 +614,12 @@ partial class Build
                         $"--chdir {TracerHomeDirectory}",
                         "netstandard2.0/",
                         "netcoreapp3.1/",
+                        "net6.0/",
                         "Datadog.Trace.ClrProfiler.Native.so",
                         "createLogPath.sh",
                     };
 
-                    if (!IsArm64)
-                    {
-                        args.Add("libddwaf.so");
-                    }
+                    args.Add("libddwaf.so");
 
                     var arguments = string.Join(" ", args);
                     fpm(arguments, workingDirectory: workingDirectory);
@@ -676,6 +662,7 @@ partial class Build
         .Unlisted()
         .After(Restore)
         .After(CompileManagedSrc)
+        .After(BuildRunnerTool)
         .DependsOn(CopyLibDdwafForAppSecUnitTests)
         .Executes(() =>
         {
@@ -710,6 +697,7 @@ partial class Build
                     .SetTargetPlatformAnyCPU()
                     .SetDDEnvironmentVariables("dd-tracer-dotnet")
                     .When(CodeCoverage, ConfigureCodeCoverage)
+                    .When(!string.IsNullOrEmpty(Filter), c => c.SetFilter(Filter))
                     .CombineWith(testProjects, (x, project) => x
                         .EnableTrxLogOutput(GetResultsDirectory(project))
                         .SetProjectFile(project)));
@@ -853,6 +841,7 @@ partial class Build
         .After(CompileRegressionSamples)
         .After(CompileFrameworkReproductions)
         .After(PublishIisSamples)
+        .After(BuildRunnerTool)
         .Requires(() => Framework)
         .Requires(() => TracerHomeDirectory != null)
         .Executes(() =>
@@ -903,7 +892,7 @@ partial class Build
                 .SetConfiguration(BuildConfiguration)
                 .SetTargetPlatform(TargetPlatform)
                 .EnableNoDependencies()
-                .SetProperty("BuildInParallel", "false")
+                .SetProperty("BuildInParallel", "true")
                 .SetProcessArgumentConfigurator(arg => arg.Add("/nowarn:NU1701"))
                 .CombineWith(projects, (s, project) => s
                     // we have to build this one for all frameworks (because of reasons)
@@ -1002,6 +991,7 @@ partial class Build
         .After(CompileIntegrationTests)
         .After(CompileRegressionSamples)
         .After(CompileFrameworkReproductions)
+        .After(BuildNativeLoader)
         .Requires(() => IsWin)
         .Requires(() => Framework)
         .Executes(() =>
@@ -1074,6 +1064,8 @@ partial class Build
         .Requires(() => Framework)
         .Executes(() =>
         {
+            MakeGrpcToolsExecutable();
+
             // There's nothing specifically linux-y here, it's just that we only build a subset of projects
             // for testing on linux.
             var sampleProjects = TracerDirectory.GlobFiles("test/test-applications/integrations/*/*.csproj");
@@ -1094,13 +1086,13 @@ partial class Build
                 "Samples.WebRequest.NetFramework20",
                 "AutomapperTest", // I think we _should_ run this one (assuming it has tests)
                 "DogStatsD.RaceCondition",
-                "LargePayload", // I think we _should_ run this one (assuming it has tests)
                 "Sandbox.ManualTracing",
                 "StackExchange.Redis.AssemblyConflict.LegacyProject",
                 "Samples.OracleMDA", // We don't test these yet
                 "Samples.OracleMDA.Core", // We don't test these yet
                 "MismatchedTracerVersions",
                 "IBM.Data.DB2.DBCommand",
+                "Sandbox.AutomaticInstrumentation", // Doesn't run on Linux
             };
 
             // These sample projects are built using RestoreAndBuildSamplesForPackageVersions
@@ -1142,9 +1134,10 @@ partial class Build
                         "Samples.AspNetCoreMvc30" => Framework == TargetFramework.NETCOREAPP3_0,
                         "Samples.AspNetCoreMvc31" => Framework == TargetFramework.NETCOREAPP3_1,
                         "Samples.AspNetCoreMinimalApis" => Framework == TargetFramework.NET6_0,
-                        "Samples.AspNetCore2" => Framework == TargetFramework.NETCOREAPP2_1,
-                        "Samples.AspNetCore5" => Framework == TargetFramework.NET6_0 || Framework == TargetFramework.NET5_0 || Framework == TargetFramework.NETCOREAPP3_1 || Framework == TargetFramework.NETCOREAPP3_0,
+                        "Samples.Security.AspNetCore2" => Framework == TargetFramework.NETCOREAPP2_1,
+                        "Samples.Security.AspNetCore5" => Framework == TargetFramework.NET6_0 || Framework == TargetFramework.NET5_0 || Framework == TargetFramework.NETCOREAPP3_1 || Framework == TargetFramework.NETCOREAPP3_0,
                         "Samples.GraphQL4" => Framework == TargetFramework.NETCOREAPP3_1 || Framework == TargetFramework.NET5_0 || Framework == TargetFramework.NET6_0,
+                        "Samples.AWS.Lambda" => Framework == TargetFramework.NETCOREAPP3_1,
                         var name when projectsToSkip.Contains(name) => false,
                         var name when multiPackageProjects.Contains(name) => false,
                         "Samples.AspNetCoreRazorPages" => true,
@@ -1203,18 +1196,26 @@ partial class Build
 
             // /nowarn:NU1701 - Package 'x' was restored using '.NETFramework,Version=v4.6.1' instead of the project target framework '.NETCoreApp,Version=v2.1'.
             // /nowarn:NETSDK1138 - Package 'x' was restored using '.NETFramework,Version=v4.6.1' instead of the project target framework '.NETCoreApp,Version=v2.1'.
-            DotNetMSBuild(x => x
-                .SetTargetPath(MsBuildProject)
-                .SetConfiguration(BuildConfiguration)
-                .EnableNoDependencies()
-                .SetProperty("TargetFramework", Framework.ToString())
-                .SetProperty("BuildInParallel", "true")
-                .SetProperty("CheckEolTargetFramework", "false")
-                .SetProcessArgumentConfigurator(arg => arg.Add("/nowarn:NU1701"))
-                .When(TestAllPackageVersions, o => o.SetProperty("TestAllPackageVersions", "true"))
-                .When(IncludeMinorPackageVersions, o => o.SetProperty("IncludeMinorPackageVersions", "true"))
-                .CombineWith(targets, (c, target) => c.SetTargets(target))
-            );
+            foreach(var target in targets)
+            {
+                DotNetMSBuild(x => x
+                    .SetTargetPath(MsBuildProject)
+                    .SetTargets(target)
+                    .SetConfiguration(BuildConfiguration)
+                    .EnableNoDependencies()
+                    .SetProperty("TargetFramework", Framework.ToString())
+                    .SetProperty("BuildInParallel", "true")
+                    .SetProperty("CheckEolTargetFramework", "false")
+                    .When(IsArm64, o => o.SetProperty("IsArm64", "true"))
+                    .When(IsAlpine, o => o.SetProperty("IsAlpine", "true"))
+                    .When(!string.IsNullOrEmpty(NugetPackageDirectory), o => o.SetProperty("RestorePackagesPath", NugetPackageDirectory))
+                    .SetProcessArgumentConfigurator(arg => arg.Add("/nowarn:NU1701"))
+                    .When(TestAllPackageVersions, o => o.SetProperty("TestAllPackageVersions", "true"))
+                    .When(IncludeMinorPackageVersions, o => o.SetProperty("IncludeMinorPackageVersions", "true"))
+                );
+
+                MakeGrpcToolsExecutable(); // for use in the second target
+            }
         });
 
     Target CompileLinuxIntegrationTests => _ => _
@@ -1225,6 +1226,7 @@ partial class Build
         .After(CompileManagedTestHelpers)
         .After(CompileSamplesLinux)
         .After(CompileMultiApiPackageVersionSamples)
+        .After(BuildRunnerTool)
         .Requires(() => TracerHomeDirectory != null)
         .Requires(() => Framework)
         .Executes(() =>
@@ -1251,12 +1253,14 @@ partial class Build
 
     Target RunLinuxIntegrationTests => _ => _
         .After(CompileLinuxIntegrationTests)
+        .After(BuildNativeLoader)
         .Description("Runs the linux integration tests")
         .Requires(() => Framework)
         .Requires(() => !IsWin)
         .Executes(() =>
         {
-            ParallelIntegrationTests.ForEach(EnsureResultsDirectory);
+            var integrationTestsToRunInParallel = IsOsx ? ParallelIntegrationTests.Where(p => p.Name != Projects.ToolIntegrationTests).ToArray() : ParallelIntegrationTests;
+            integrationTestsToRunInParallel.ForEach(EnsureResultsDirectory);
             ClrProfilerIntegrationTests.ForEach(EnsureResultsDirectory);
 
             var filter = (string.IsNullOrEmpty(Filter), IsArm64) switch
@@ -1282,7 +1286,7 @@ partial class Build
                         .When(TestAllPackageVersions, o => o.SetProcessEnvironmentVariable("TestAllPackageVersions", "true"))
                         .When(IncludeMinorPackageVersions, o => o.SetProperty("IncludeMinorPackageVersions", "true"))
                         .When(CodeCoverage, ConfigureCodeCoverage)
-                        .CombineWith(ParallelIntegrationTests, (s, project) => s
+                        .CombineWith(integrationTestsToRunInParallel, (s, project) => s
                             .EnableTrxLogOutput(GetResultsDirectory(project))
                             .SetProjectFile(project)),
                     degreeOfParallelism: 2);
@@ -1312,6 +1316,86 @@ partial class Build
             }
         });
 
+    Target InstallDdTraceTool => _ => _
+         .Description("Installs the dd-trace tool")
+         .OnlyWhenDynamic(() => (ToolSource != null))
+         .Executes(() =>
+         {
+             try
+             {
+                 DotNetToolUninstall(s => s
+                     .SetToolInstallationPath(ToolInstallDirectory)
+                     .SetPackageName("dd-trace")
+                     .DisableProcessLogOutput());
+             }
+             catch
+             {
+                 // This step is expected to fail if the tool is not already installed
+                 Logger.Info("Could not uninstall the dd-trace tool. It's probably not installed.");
+             }
+
+             DotNetToolInstall(s => s
+                .SetToolInstallationPath(ToolInstallDirectory)
+                .SetSources(ToolSourceDirectory)
+                .SetProcessArgumentConfigurator(args => args.Add("--no-cache"))
+                .SetPackageName("dd-trace"));
+         });
+
+    Target BuildToolArtifactTests => _ => _
+         .Description("Builds the tool artifacts tests")
+         .After(CompileManagedTestHelpers)
+         .After(InstallDdTraceTool)
+         .Executes(() =>
+          {
+              DotNetBuild(x => x
+                  .SetProjectFile(Solution.GetProject(Projects.ToolArtifactsTests))
+                  .EnableNoDependencies()
+                  .EnableNoRestore()
+                  .SetConfiguration(BuildConfiguration)
+                  .SetNoWarnDotNetCore3());
+          });
+
+    Target RunToolArtifactTests => _ => _
+       .Description("Runs the tool artifacts tests")
+       .After(BuildToolArtifactTests)
+       .Executes(() =>
+        {
+            var project = Solution.GetProject(Projects.ToolArtifactsTests);
+
+            DotNetTest(config => config
+                .SetProjectFile(project)
+                .SetConfiguration(BuildConfiguration)
+                .EnableNoRestore()
+                .EnableNoBuild()
+                .SetProcessEnvironmentVariable("TracerHomeDirectory", TracerHomeDirectory)
+                .SetProcessEnvironmentVariable("ToolInstallDirectory", ToolInstallDirectory)
+                .EnableTrxLogOutput(GetResultsDirectory(project)));
+        });
+
+    Target UpdateSnapshots => _ => _
+        .Description("Updates verified snapshots files with received ones")
+        .Executes(() =>
+        {
+            var snapshotsDirectory = Path.Combine(TestsDirectory, "snapshots");
+            var directory = new DirectoryInfo(snapshotsDirectory);
+            var files = directory.GetFiles("*.received*");
+
+            var suffixLength = "received".Length;
+            foreach (var file in files)
+            {
+                var source = file.FullName;
+                var fileName = Path.GetFileNameWithoutExtension(source);
+                if (!fileName.EndsWith("received"))
+                {
+                    Logger.Warn($"Skipping file '{source}' as filename did not end with 'received'");
+                    continue;
+                }
+                var trimmedName = fileName.Substring(0, fileName.Length - suffixLength);
+                var dest = Path.Combine(directory.FullName, $"{trimmedName}verified{Path.GetExtension(source)}");
+                file.MoveTo(dest, overwrite: true);
+            }
+        });
+
     Target CheckBuildLogsForErrors => _ => _
        .Unlisted()
        .Description("Reads the logs from build_data and checks for error lines")
@@ -1326,6 +1410,7 @@ partial class Build
                new(@".*at CallTargetNativeTest\.NoOp\.Noop\dArgumentsIntegration\.OnMethodEnd.*", RegexOptions.Compiled),
                new(@".*at CallTargetNativeTest\.NoOp\.Noop\dArgumentsVoidIntegration\.OnMethodBegin.*", RegexOptions.Compiled),
                new(@".*at CallTargetNativeTest\.NoOp\.Noop\dArgumentsVoidIntegration\.OnMethodEnd.*", RegexOptions.Compiled),
+               new(@".*System.Threading.ThreadAbortException: Thread was being aborted\.", RegexOptions.Compiled),
            };
 
            var logDirectory = BuildDataDirectory / "logs";
@@ -1494,6 +1579,41 @@ partial class Build
            Logger.Info($"Skipping log parsing, directory '{logDirectory}' not found");
        });
 
+    private void MakeGrpcToolsExecutable()
+    {
+        var packageDirectory = NugetPackageDirectory;
+        if (string.IsNullOrEmpty(NugetPackageDirectory))
+        {
+            Logger.Info("NugetPackageDirectory not set, querying for global-package location");
+            var packageLocation = "global-packages";
+            var output = DotNet($"nuget locals {packageLocation} --list");
+
+            var expected = $"{packageLocation}: ";
+            var location = output
+                              .Where(x => x.Type == OutputType.Std)
+                              .Select(x=>x.Text)
+                              .FirstOrDefault(x => x.StartsWith(expected))
+                             ?.Substring(expected.Length);
+
+            if (string.IsNullOrEmpty(location))
+            {
+                Logger.Info("Couldn't determine global-package location, skipping chmod +x on grpc.tools");
+                return;
+            }
+
+            packageDirectory = (AbsolutePath)(location);
+        }
+
+        Logger.Info($"Using '{packageDirectory}' for NuGet package location");
+
+        // GRPC runs a tool for codegen, which apparently isn't automatically marked as executable
+        var grpcTools = GlobFiles(packageDirectory / "grpc.tools", "**/tools/*_*/*");
+        foreach (var toolPath in grpcTools)
+        {
+            Chmod.Value.Invoke(" +x " + toolPath);
+        }
+    }
+
     private AbsolutePath GetResultsDirectory(Project proj) => BuildDataDirectory / "results" / proj.Name;
 
     private void EnsureResultsDirectory(Project proj) => EnsureCleanDirectory(GetResultsDirectory(proj));
@@ -1552,7 +1672,6 @@ partial class Build
                              .Add("DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.SkipAutoProps=true")
                              .Add("DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura")
                              .Add($"DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.StrongNameKey=\"{strongNameKeyPath}\"")
-                             .Add("DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ExcludeByFile=\"**/NuGet/**/LibLog/**/*.cs\",")
                              .Add("DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude=\"[*]Datadog.Trace.Vendors.*,[Datadog.Trace]System.*,[Datadog.Trace]Mono.*\",")
                              .Add("DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=\"[Datadog.Trace.ClrProfiler.*]*,[Datadog.Trace]*,[Datadog.Trace.AspNet]*\""));
     }

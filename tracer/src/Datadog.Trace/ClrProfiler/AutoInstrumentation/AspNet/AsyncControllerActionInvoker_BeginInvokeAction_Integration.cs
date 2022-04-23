@@ -8,9 +8,11 @@ using System;
 using System.ComponentModel;
 using System.Web;
 using Datadog.Trace.AppSec;
+using Datadog.Trace.AspNet;
 using Datadog.Trace.ClrProfiler.CallTarget;
 using Datadog.Trace.Configuration;
 using Datadog.Trace.DuckTyping;
+using Datadog.Trace.Util.Http;
 using Datadog.Trace.Vendors.Serilog;
 
 namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
@@ -60,14 +62,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
                 {
                     var duckedControllerContext = controllerContext.DuckCast<ControllerContextStruct>();
                     scope = AspNetMvcIntegration.CreateScope(duckedControllerContext);
-                    HttpContext.Current.Items[AspNetMvcIntegration.HttpContextKey] = scope;
-
-                    var security = Security.Instance;
-                    if (security.Settings.Enabled)
-                    {
-                        var context = HttpContext.Current;
-                        security.InstrumentationGateway.RaiseEvent(context, null, scope.Span, duckedControllerContext.RouteData);
-                    }
+                    SharedItems.PushScope(HttpContext.Current, AspNetMvcIntegration.HttpContextKey, scope);
                 }
             }
             catch (Exception ex)

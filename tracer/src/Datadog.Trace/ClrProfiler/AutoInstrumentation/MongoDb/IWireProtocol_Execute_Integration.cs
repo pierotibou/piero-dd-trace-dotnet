@@ -13,9 +13,15 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.MongoDb
     /// <summary>
     /// MongoDB.Driver.Core.WireProtocol.IWireProtocol instrumentation
     /// </summary>
-    [MongoDbExecute(
-        typeName: "MongoDB.Driver.Core.WireProtocol.KillCursorsWireProtocol",
-        isGeneric: false)]
+    [InstrumentMethod(
+        AssemblyName = MongoDbIntegration.MongoDbClientAssembly,
+        IntegrationName = MongoDbIntegration.IntegrationName,
+        MinimumVersion = MongoDbIntegration.Major2Minor2,
+        MaximumVersion = MongoDbIntegration.Major2,
+        MethodName = "Execute",
+        ParameterTypeNames = new[] { "MongoDB.Driver.Core.Connections.IConnection", ClrNames.CancellationToken },
+        TypeName = "MongoDB.Driver.Core.WireProtocol.KillCursorsWireProtocol",
+        ReturnTypeName = ClrNames.Void)]
     // ReSharper disable once InconsistentNaming
     [Browsable(false)]
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -28,8 +34,10 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.MongoDb
         /// <param name="connection">The MongoDB connection</param>
         /// <param name="cancellationToken">The cancellation token</param>
         /// <typeparam name="TTarget">Type of the target</typeparam>
+        /// <typeparam name="TConnection">Type of the connection</typeparam>
         /// <returns>Calltarget state value</returns>
-        internal static CallTargetState OnMethodBegin<TTarget>(TTarget instance, object connection, CancellationToken cancellationToken)
+        internal static CallTargetState OnMethodBegin<TTarget, TConnection>(TTarget instance, TConnection connection, CancellationToken cancellationToken)
+            where TConnection : IConnection
         {
             var scope = MongoDbIntegration.CreateScope(instance, connection);
 
@@ -44,7 +52,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.MongoDb
         /// <param name="exception">Exception instance in case the original code threw an exception.</param>
         /// <param name="state">Calltarget state value</param>
         /// <returns>A response value, in an async scenario will be T of Task of T</returns>
-        internal static CallTargetReturn OnMethodEnd<TTarget>(TTarget instance, Exception exception, CallTargetState state)
+        internal static CallTargetReturn OnMethodEnd<TTarget>(TTarget instance, Exception exception, in CallTargetState state)
         {
             var scope = state.Scope;
 

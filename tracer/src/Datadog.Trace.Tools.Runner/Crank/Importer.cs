@@ -7,18 +7,21 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using Datadog.Trace.Ci;
 using Datadog.Trace.Ci.Tags;
-using Datadog.Trace.Configuration;
 using Datadog.Trace.ExtensionMethods;
 using Datadog.Trace.Vendors.Newtonsoft.Json;
+using Spectre.Console;
+
 #pragma warning disable SA1201 // Elements should appear in the correct order
 
 namespace Datadog.Trace.Tools.Runner.Crank
 {
     internal class Importer
     {
+        public const string RateLimit = "rate-limit";
+        public const string PayloadSize = "payload-size";
+
         private static readonly IResultConverter[] Converters = new IResultConverter[]
         {
             new MsTimeResultConverter("benchmarks/start-time"),
@@ -66,7 +69,7 @@ namespace Datadog.Trace.Tools.Runner.Crank
 
         public static int Process(string jsonFilePath)
         {
-            Console.WriteLine("Importing Crank json result file...");
+            AnsiConsole.WriteLine("Importing Crank json result file...");
             try
             {
                 string jsonContent = File.ReadAllText(jsonFilePath);
@@ -76,13 +79,7 @@ namespace Datadog.Trace.Tools.Runner.Crank
                 {
                     var fileName = Path.GetFileName(jsonFilePath);
 
-                    var tracerSettings = TracerSettings.FromDefaultSources();
-                    if (string.IsNullOrEmpty(tracerSettings.ServiceName))
-                    {
-                        tracerSettings.ServiceName = "crank";
-                    }
-
-                    Tracer.Configure(tracerSettings);
+                    CIVisibility.Initialize();
                     Tracer tracer = Tracer.Instance;
 
                     foreach (var jobItem in result.JobResults.Jobs)
@@ -104,12 +101,12 @@ namespace Datadog.Trace.Tools.Runner.Crank
 
                         var duration = (maxTimeStamp - minTimeStamp);
 
-                        Span span = tracer.StartSpan("crank.test", startTime: minTimeStamp);
+                        Span span = tracer.StartSpan("crank.test", startTime: minTimeStamp, serviceName: "crank");
 
-                        span.SetTraceSamplingPriority(SamplingPriority.AutoKeep);
+                        span.SetTraceSamplingPriority(SamplingPriorityValues.AutoKeep);
                         span.Type = SpanTypes.Test;
                         span.ResourceName = $"{fileName}/{jobItem.Key}";
-                        CIEnvironmentValues.DecorateSpan(span);
+                        CIEnvironmentValues.Instance.DecorateSpan(span);
 
                         span.SetTag(TestTags.Name, jobItem.Key);
                         span.SetTag(TestTags.Type, TestTags.TypeBenchmark);
@@ -122,6 +119,8 @@ namespace Datadog.Trace.Tools.Runner.Crank
                             string scenario = string.Empty;
                             string profile = string.Empty;
                             string arch = string.Empty;
+                            string rateLimit = string.Empty;
+                            string payloadSize = string.Empty;
                             string testName = jobItem.Key;
                             foreach (var propItem in result.JobResults.Properties)
                             {
@@ -143,6 +142,14 @@ namespace Datadog.Trace.Tools.Runner.Crank
                                 {
                                     arch = propItem.Value;
                                 }
+                                else if (propItem.Key == RateLimit)
+                                {
+                                    rateLimit = propItem.Value;
+                                }
+                                else if (propItem.Key == PayloadSize)
+                                {
+                                    payloadSize = propItem.Value;
+                                }
                             }
 
                             string suite = fileName;
@@ -163,6 +170,17 @@ namespace Datadog.Trace.Tools.Runner.Crank
 
                             span.SetTag(TestTags.Suite, $"Crank.{suite}");
                             span.SetTag(TestTags.Name, testName);
+
+                            if (rateLimit != string.Empty)
+                            {
+                                span.SetTag(RateLimit, rateLimit);
+                            }
+
+                            if (payloadSize != string.Empty)
+                            {
+                                span.SetTag(PayloadSize, payloadSize);
+                            }
+
                             span.ResourceName = $"{suite}/{testName}";
                         }
 
@@ -227,25 +245,16 @@ namespace Datadog.Trace.Tools.Runner.Crank
 
                     // Ensure all the spans gets flushed before we report the success.
                     // In some cases the process finishes without sending the traces in the buffer.
-                    SynchronizationContext context = SynchronizationContext.Current;
-                    try
-                    {
-                        SynchronizationContext.SetSynchronizationContext(null);
-                        tracer.FlushAsync().GetAwaiter().GetResult();
-                    }
-                    finally
-                    {
-                        SynchronizationContext.SetSynchronizationContext(context);
-                    }
+                    CIVisibility.FlushSpans();
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                AnsiConsole.WriteException(ex);
                 return 1;
             }
 
-            Console.WriteLine("The result file was imported successfully.");
+            AnsiConsole.WriteLine("The result file was imported successfully.");
             return 0;
         }
     }

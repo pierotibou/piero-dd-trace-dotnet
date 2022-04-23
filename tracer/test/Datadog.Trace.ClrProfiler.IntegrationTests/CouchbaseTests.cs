@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using Datadog.Trace.Configuration;
 using Datadog.Trace.ExtensionMethods;
 using Datadog.Trace.TestHelpers;
 using Xunit;
@@ -34,8 +35,9 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
         [Trait("Category", "ArmUnsupported")]
         public void SubmitTraces(string packageVersion)
         {
+            using var telemetry = this.ConfigureTelemetry();
             using (var agent = EnvironmentHelper.GetMockAgent())
-            using (RunSampleAndWaitForExit(agent.Port, packageVersion: packageVersion))
+            using (RunSampleAndWaitForExit(agent, packageVersion: packageVersion))
             {
                 var spans = agent.WaitForSpans(13, 500);
                 Assert.True(spans.Count >= 13, $"Expecting at least 13 spans, only received {spans.Count}");
@@ -55,6 +57,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                 };
 
                 ValidateSpans(spans, (span) => span.Resource, expected);
+                telemetry.AssertIntegrationEnabled(IntegrationId.Couchbase);
             }
         }
     }

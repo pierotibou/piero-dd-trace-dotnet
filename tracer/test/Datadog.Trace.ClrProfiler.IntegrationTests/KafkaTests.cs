@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Datadog.Trace.Configuration;
 using Datadog.Trace.TestHelpers;
 using FluentAssertions;
 using FluentAssertions.Execution;
@@ -47,8 +48,9 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
         {
             var topic = $"sample-topic-{TestPrefix}-{packageVersion}".Replace('.', '-');
 
+            using var telemetry = this.ConfigureTelemetry();
             using var agent = EnvironmentHelper.GetMockAgent();
-            using var processResult = RunSampleAndWaitForExit(agent.Port, arguments: topic, packageVersion: packageVersion);
+            using var processResult = RunSampleAndWaitForExit(agent, arguments: topic, packageVersion: packageVersion);
 
             var allSpans = agent.WaitForSpans(TotalExpectedSpanCount, timeoutInMilliseconds: 10_000);
             using var assertionScope = new AssertionScope();
@@ -130,9 +132,11 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                    .And.OnlyContain(x => x.Tags[Tags.ErrorMsg] == "Broker: Unknown topic or partition")
                    .And.OnlyContain(x => x.Tags[Tags.ErrorType] == "Confluent.Kafka.ConsumeException");
             }
+
+            telemetry.AssertIntegrationEnabled(IntegrationId.Kafka);
         }
 
-        private void VerifyProducerSpanProperties(List<MockTracerAgent.Span> producerSpans, string resourceName, int expectedCount)
+        private void VerifyProducerSpanProperties(List<MockSpan> producerSpans, string resourceName, int expectedCount)
         {
             producerSpans.Should()
                          .HaveCount(expectedCount)
@@ -141,7 +145,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                          .And.OnlyContain(x => x.Metrics.ContainsKey(Tags.Measured) && x.Metrics[Tags.Measured] == 1.0);
         }
 
-        private void VerifyConsumerSpanProperties(List<MockTracerAgent.Span> consumerSpans, string resourceName, int expectedCount)
+        private void VerifyConsumerSpanProperties(List<MockSpan> consumerSpans, string resourceName, int expectedCount)
         {
             // HaveCountGreaterOrEqualTo because same message may be consumed by both
             consumerSpans.Should()

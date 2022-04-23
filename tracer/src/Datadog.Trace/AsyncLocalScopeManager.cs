@@ -4,23 +4,79 @@
 // </copyright>
 
 using System.Threading;
+using Datadog.Trace.ClrProfiler;
+using Datadog.Trace.ContinuousProfiler;
+using Datadog.Trace.Logging;
 
 namespace Datadog.Trace
 {
-    internal class AsyncLocalScopeManager : ScopeManagerBase
+    internal class AsyncLocalScopeManager : IScopeManager, IScopeRawAccess
     {
-        private readonly AsyncLocal<Scope> _activeScope = new();
+        private static readonly IDatadogLogger Log = DatadogLogging.GetLoggerFor(typeof(AsyncLocalScopeManager));
 
-        public override Scope Active
+        private readonly AsyncLocal<Scope> _activeScope = CreateScope();
+
+        public Scope Active
         {
-            get
+            get => _activeScope.Value;
+            private set => _activeScope.Value = value;
+        }
+
+        Scope IScopeRawAccess.Active
+        {
+            get => Active;
+            set => Active = value;
+        }
+
+        public Scope Activate(Span span, bool finishOnClose)
+        {
+            var newParent = Active;
+            var scope = new Scope(newParent, span, this, finishOnClose);
+
+            Active = scope;
+            DistributedTracer.Instance.SetSpanContext(scope.Span.Context);
+
+            return scope;
+        }
+
+        public void Close(Scope scope)
+        {
+            var current = Active;
+            var isRootSpan = scope.Parent == null;
+
+            if (current == null || current != scope)
             {
-                return _activeScope.Value;
+                // This is not the current scope for this context, bail out
+                return;
             }
 
-            protected set
+            // if the scope that was just closed was the active scope,
+            // set its parent as the new active scope
+            Active = scope.Parent;
+
+            // scope.Parent is null for distributed traces, so use scope.Span.Context.Parent
+            DistributedTracer.Instance.SetSpanContext(scope.Span.Context.Parent as SpanContext);
+        }
+
+        private static AsyncLocal<Scope> CreateScope()
+        {
+            if (Profiler.Instance.ContextTracker.IsEnabled)
             {
-                _activeScope.Value = value;
+                return new AsyncLocal<Scope>(OnScopeChanged);
+            }
+
+            return new AsyncLocal<Scope>();
+        }
+
+        private static void OnScopeChanged(AsyncLocalValueChangedArgs<Scope> obj)
+        {
+            if (obj.CurrentValue == null)
+            {
+                Profiler.Instance.ContextTracker.Reset();
+            }
+            else
+            {
+                Profiler.Instance.ContextTracker.Set(obj.CurrentValue.Span.RootSpanId, obj.CurrentValue.Span.SpanId);
             }
         }
     }

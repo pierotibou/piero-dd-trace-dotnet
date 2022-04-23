@@ -118,11 +118,7 @@ namespace PrepareRelease
                 NugetVersionReplace);
 
             SynchronizeVersion(
-                "src/Datadog.Trace.Tools.Runner/Datadog.Trace.Tools.Runner.Standalone.csproj",
-                NugetVersionReplace);
-
-            SynchronizeVersion(
-                "src/Datadog.Trace.Tools.Runner/Datadog.Trace.Tools.Runner.Tool.csproj",
+                "src/Datadog.Trace.Tools.Runner/Datadog.Trace.Tools.Runner.csproj",
                 NugetVersionReplace);
 
             // Fully qualified name updates
@@ -143,7 +139,7 @@ namespace PrepareRelease
                 "src/Datadog.Trace/TracerConstants.cs",
                 FourPartVersionReplace);
 
-            // Native profiler updates
+            // Native clr profiler updates
             SynchronizeVersion(
                 "src/Datadog.Trace.ClrProfiler.Native/CMakeLists.txt",
                 text => FullVersionReplace(text, ".", prefix: "VERSION "));
@@ -161,9 +157,36 @@ namespace PrepareRelease
                 "src/Datadog.Trace.ClrProfiler.Native/version.h",
                 text => FullVersionReplace(text, "."));
 
+            // .NET profiler
+
+            SynchronizeVersion(
+                "../profiler/src/ProfilerEngine/Datadog.Profiler.Native.Windows/Resource.rc",
+                text =>
+                {
+                    text = FullVersionReplace(text, ",");
+                    text = FullVersionReplace(text, ".");
+                    return text;
+                });
+
+            SynchronizeVersion(
+                "../profiler/src/ProfilerEngine/Datadog.Profiler.Native.Linux/CMakeLists.txt",
+                text => FullVersionReplace(text, ".", prefix: "VERSION "));
+
+            SynchronizeVersion(
+                "../profiler/src/ProfilerEngine/Datadog.Profiler.Native/dd_profiler_version.h",
+                text => FullVersionReplace(text, "."));
+
+            SynchronizeVersion(
+                "../.github/scripts/package_and_deploy.sh",
+                text => FullVersionReplace(text, ".", prefix: "current_profiler_version=\""));
+
+            SynchronizeVersion(
+                "../profiler/src/ProfilerEngine/ProductVersion.props",
+                PropsVersionReplace);
+
             // Deployment updates
             SynchronizeVersion(
-                "src/WindowsInstaller/WindowsInstaller.wixproj",
+                "../shared/src/msi-installer/WindowsInstaller.wixproj",
                 WixProjReplace);
 
             Console.WriteLine($"Completed synchronizing versions to {VersionString()}");
@@ -211,6 +234,11 @@ namespace PrepareRelease
         private string NuspecVersionReplace(string text)
         {
             return Regex.Replace(text, $"<version>{VersionPattern(withPrereleasePostfix: true)}</version>", $"<version>{VersionString(withPrereleasePostfix: true)}</version>", RegexOptions.Singleline);
+        }
+
+        private string PropsVersionReplace(string text)
+        {
+            return Regex.Replace(text, $"<ProductVersion>{VersionPattern(withPrereleasePostfix: false)}</ProductVersion>", $"<ProductVersion>{VersionString(withPrereleasePostfix: false)}</ProductVersion>", RegexOptions.Singleline);
         }
 
         private string WixProjReplace(string text)

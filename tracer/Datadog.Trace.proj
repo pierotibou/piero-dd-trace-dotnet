@@ -8,7 +8,8 @@
   <ItemGroup>
     <CsharpProject Include="src\**\*.csproj" Exclude="src/Datadog.Monitoring.Distribution/Datadog.Monitoring.Distribution.csproj;src/Datadog.Trace.Tools.Runner/*.csproj" />
     <CsharpUnitTestProject Include="test\**\*.Tests.csproj"/>
-    <CsharpIntegrationTestProject Include="test\*.IntegrationTests\*.IntegrationTests.csproj"/>
+    <CsharpIntegrationTestProject Include="test\*.IntegrationTests\*.IntegrationTests.csproj" />
+    <CsharpIntegrationTestProject Remove="test\Datadog.Trace.Tools.Runner.IntegrationTests\Datadog.Trace.Tools.Runner.IntegrationTests.csproj" Condition="$(TargetFramework.StartsWith('net4'))" />
     <CsharpIntegrationTestRegressionProject Include="test\tests-applications\regression\*.IntegrationTests.csproj" />
     <RazorPagesProject Include="test/test-applications/**/Samples.AspNetCoreRazorPages.csproj" />
     <ExcludeExpenseItDemoProject Remove="test/test-applications/regression/**/ExpenseItDemo*.csproj" />
@@ -99,7 +100,7 @@
   <Target Name="RestoreSamplesForPackageVersionsOnly" Condition="'$(TestAllPackageVersions)'=='true'">
     <!-- Filter the sample projects by TargetFramework -->
     <ItemGroup>
-      <PackageVersionSampleCompile Include="@(PackageVersionSample)" Condition="'%(PackageVersionSample.TargetFramework)' == '' or '%(PackageVersionSample.TargetFramework)'=='$(TargetFramework)'" />
+      <PackageVersionSampleCompile Include="@(PackageVersionSample)" Condition="('$(IsAlpine)' != 'true' OR '%(PackageVersionSample.SkipAlpine)'!='true') AND ('$(IsArm64)' != 'true' OR '%(PackageVersionSample.SkipArm64)'!='true') AND ('%(PackageVersionSample.TargetFramework)' == '' or '%(PackageVersionSample.TargetFramework)'=='$(TargetFramework)')" />
     </ItemGroup>
 
     <!-- Build the sample projects concurrently -->
@@ -114,7 +115,7 @@
     <!-- Assumes that the core C# projects are already built first -->
     <!-- Filter the sample projects by TargetFramework -->
     <ItemGroup>
-      <PackageVersionSampleCompile Include="@(PackageVersionSample)" Condition="'%(PackageVersionSample.TargetFramework)' == '' or '%(PackageVersionSample.TargetFramework)'=='$(TargetFramework)'" />
+      <PackageVersionSampleCompile Include="@(PackageVersionSample)" Condition="('$(IsAlpine)' != 'true' OR '%(PackageVersionSample.SkipAlpine)'!='true') AND ('$(IsArm64)' != 'true' OR '%(PackageVersionSample.SkipArm64)'!='true') AND ('%(PackageVersionSample.TargetFramework)' == '' or '%(PackageVersionSample.TargetFramework)'=='$(TargetFramework)')" />
     </ItemGroup>
 
     <!-- Build the sample projects concurrently -->
@@ -124,6 +125,6 @@
   </Target>
 
   <Import Condition="'$(TestAllPackageVersions)'=='true' AND '$(IncludeMinorPackageVersions)'=='true'" Project="build\PackageVersionsLatestMinors.g.props" />
-  <Import Condition="'$(TestAllPackageVersions)'=='true' AND '$(IncludeMinorPackageVersions)'!='true'" Project="build\PackageVersionsLatestMajors.g.props" />
+  <Import Condition="'$(TestAllPackageVersions)'=='true' AND '$(IncludeMinorPackageVersions)'!='true'" Project="build\PackageVersionsLatestSpecific.g.props" />
 
 </Project>

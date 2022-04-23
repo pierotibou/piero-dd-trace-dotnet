@@ -7,15 +7,20 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Datadog.Trace.Agent;
+using Datadog.Trace.AppSec;
 using Datadog.Trace.ClrProfiler;
 using Datadog.Trace.Configuration;
 using Datadog.Trace.DogStatsd;
 using Datadog.Trace.Logging;
+using Datadog.Trace.Logging.DirectSubmission;
 using Datadog.Trace.PlatformHelpers;
+using Datadog.Trace.Propagators;
 using Datadog.Trace.RuntimeMetrics;
 using Datadog.Trace.Sampling;
+using Datadog.Trace.Telemetry;
 using Datadog.Trace.Util;
 using Datadog.Trace.Vendors.StatsdClient;
+using MetricsTransportType = Datadog.Trace.Vendors.StatsdClient.Transport.TransportType;
 
 namespace Datadog.Trace
 {
@@ -40,12 +45,13 @@ namespace Datadog.Trace
                 scopeManager: previous?.ScopeManager, // no configuration, so can always use the same one
                 statsd: null,
                 runtimeMetrics: null,
-                libLogSubscriber: null);
+                logSubmissionManager: previous?.DirectLogSubmission,
+                telemetry: null);
         }
 
         /// <summary>
         /// Internal for use in tests that create "standalone" <see cref="TracerManager"/> by
-        /// <see cref="Tracer(TracerSettings, IAgentWriter, ISampler, IScopeManager, IDogStatsd)"/>
+        /// <see cref="Tracer(TracerSettings, IAgentWriter, ISampler, IScopeManager, IDogStatsd, ITelemetryController)"/>
         /// </summary>
         internal TracerManager CreateTracerManager(
             ImmutableTracerSettings settings,
@@ -54,7 +60,8 @@ namespace Datadog.Trace
             IScopeManager scopeManager,
             IDogStatsd statsd,
             RuntimeMetricsWriter runtimeMetrics,
-            LibLogScopeEventSubscriber libLogSubscriber)
+            DirectLogSubmissionManager logSubmissionManager,
+            ITelemetryController telemetry)
         {
             settings ??= ImmutableTracerSettings.FromDefaultSources();
 
@@ -63,7 +70,7 @@ namespace Datadog.Trace
                                      UnknownServiceName;
 
             statsd = settings.TracerMetricsEnabled
-                         ? (statsd ?? CreateDogStatsdClient(settings, defaultServiceName, settings.Exporter.DogStatsdPort))
+                         ? (statsd ?? CreateDogStatsdClient(settings, defaultServiceName))
                          : null;
             sampler ??= GetSampler(settings);
             agentWriter ??= GetAgentWriter(settings, statsd, sampler);
@@ -71,15 +78,23 @@ namespace Datadog.Trace
 
             if (settings.RuntimeMetricsEnabled && !DistributedTracer.Instance.IsChildTracer)
             {
-                runtimeMetrics ??= new RuntimeMetricsWriter(statsd ?? CreateDogStatsdClient(settings, defaultServiceName, settings.Exporter.DogStatsdPort), TimeSpan.FromSeconds(10));
+                runtimeMetrics ??= new RuntimeMetricsWriter(statsd ?? CreateDogStatsdClient(settings, defaultServiceName), TimeSpan.FromSeconds(10));
             }
 
-            if (settings.LogsInjectionEnabled)
-            {
-                libLogSubscriber ??= new LibLogScopeEventSubscriber(scopeManager, defaultServiceName, settings.ServiceVersion ?? string.Empty, settings.Environment ?? string.Empty);
-            }
+            logSubmissionManager = DirectLogSubmissionManager.Create(
+                logSubmissionManager,
+                settings.LogSubmissionSettings,
+                defaultServiceName,
+                settings.Environment,
+                settings.ServiceVersion);
 
-            var tracerManager = CreateTracerManagerFrom(settings, agentWriter, sampler, scopeManager, statsd, runtimeMetrics, libLogSubscriber, defaultServiceName);
+            telemetry ??= TelemetryFactory.CreateTelemetryController(settings);
+            telemetry.RecordTracerSettings(settings, defaultServiceName, AzureAppServices.Metadata);
+            telemetry.RecordSecuritySettings(Security.Instance.Settings);
+
+            SpanContextPropagator.Instance = ContextPropagators.GetSpanContextPropagator(settings.PropagationStyleInject, settings.PropagationStyleExtract);
+
+            var tracerManager = CreateTracerManagerFrom(settings, agentWriter, sampler, scopeManager, statsd, runtimeMetrics, logSubmissionManager, telemetry, defaultServiceName);
             return tracerManager;
         }
 
@@ -93,9 +108,10 @@ namespace Datadog.Trace
             IScopeManager scopeManager,
             IDogStatsd statsd,
             RuntimeMetricsWriter runtimeMetrics,
-            LibLogScopeEventSubscriber libLogSubscriber,
+            DirectLogSubmissionManager logSubmissionManager,
+            ITelemetryController telemetry,
             string defaultServiceName)
-            => new TracerManager(settings, agentWriter, sampler, scopeManager, statsd, runtimeMetrics, libLogSubscriber, defaultServiceName);
+            => new TracerManager(settings, agentWriter, sampler, scopeManager, statsd, runtimeMetrics, logSubmissionManager, telemetry, defaultServiceName);
 
         protected virtual ISampler GetSampler(ImmutableTracerSettings settings)
         {
@@ -128,12 +144,12 @@ namespace Datadog.Trace
 
         protected virtual IAgentWriter GetAgentWriter(ImmutableTracerSettings settings, IDogStatsd statsd, ISampler sampler)
         {
-            var apiRequestFactory = TransportStrategy.Get(settings.Exporter);
-            var api = new Api(settings.Exporter.AgentUri, apiRequestFactory, statsd, rates => sampler.SetDefaultSampleRates(rates), settings.Exporter.PartialFlushEnabled);
+            var apiRequestFactory = TracesTransportStrategy.Get(settings.Exporter);
+            var api = new Api(apiRequestFactory, statsd, rates => sampler.SetDefaultSampleRates(rates), settings.Exporter.PartialFlushEnabled);
             return new AgentWriter(api, statsd, maxBufferSize: settings.TraceBufferSize);
         }
 
-        private static IDogStatsd CreateDogStatsdClient(ImmutableTracerSettings settings, string serviceName, int port)
+        private static IDogStatsd CreateDogStatsdClient(ImmutableTracerSettings settings, string serviceName)
         {
             try
             {
@@ -158,23 +174,37 @@ namespace Datadog.Trace
                 }
 
                 var statsd = new DogStatsdService();
-                if (AzureAppServices.Metadata.IsRelevant)
+                switch (settings.Exporter.MetricsTransport)
                 {
-                    // Environment variables set by the Azure App Service extension are used internally.
-                    // Setting the server name will force UDP, when we need named pipes.
-                    statsd.Configure(new StatsdConfig
-                    {
-                        ConstantTags = constantTags.ToArray()
-                    });
-                }
-                else
-                {
-                    statsd.Configure(new StatsdConfig
-                    {
-                        StatsdServerName = settings.Exporter.AgentUri.DnsSafeHost,
-                        StatsdPort = port,
-                        ConstantTags = constantTags.ToArray()
-                    });
+                    case MetricsTransportType.NamedPipe:
+                        // Environment variables for windows named pipes are not explicitly passed to statsd.
+                        // They are retrieved within the vendored code, so there is nothing to pass.
+                        // Passing anything through StatsdConfig may cause bugs when windows named pipes should be used.
+                        Log.Information("Using windows named pipes for metrics transport.");
+                        statsd.Configure(new StatsdConfig
+                        {
+                            ConstantTags = constantTags.ToArray()
+                        });
+                        break;
+#if NETCOREAPP3_1_OR_GREATER
+                    case MetricsTransportType.UDS:
+                        Log.Information("Using unix domain sockets for metrics transport.");
+                        statsd.Configure(new StatsdConfig
+                        {
+                            StatsdServerName = $"{ExporterSettings.UnixDomainSocketPrefix}{settings.Exporter.MetricsUnixDomainSocketPath}",
+                            ConstantTags = constantTags.ToArray()
+                        });
+                        break;
+#endif
+                    case MetricsTransportType.UDP:
+                    default:
+                        statsd.Configure(new StatsdConfig
+                        {
+                            StatsdServerName = settings.Exporter.AgentUri.DnsSafeHost,
+                            StatsdPort = settings.Exporter.DogStatsdPort,
+                            ConstantTags = constantTags.ToArray()
+                        });
+                        break;
                 }
 
                 return statsd;

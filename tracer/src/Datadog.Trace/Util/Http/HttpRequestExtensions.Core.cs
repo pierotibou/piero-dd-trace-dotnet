@@ -9,7 +9,6 @@ using System.Linq;
 using Datadog.Trace.AppSec;
 using Datadog.Trace.Logging;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Routing;
 
 namespace Datadog.Trace.Util.Http
 {
@@ -18,7 +17,7 @@ namespace Datadog.Trace.Util.Http
         private const string NoHostSpecified = "UNKNOWN_HOST";
         private static readonly IDatadogLogger Log = DatadogLogging.GetLoggerFor(typeof(HttpRequestExtensions));
 
-        internal static Dictionary<string, object> PrepareArgsForWaf(this HttpRequest request, RouteData routeDatas = null)
+        internal static Dictionary<string, object> PrepareArgsForWaf(this HttpRequest request)
         {
             var url = GetUrl(request);
             var headersDic = new Dictionary<string, string[]>(request.Headers.Keys.Count);
@@ -61,16 +60,11 @@ namespace Datadog.Trace.Util.Http
             }
 
             var queryStringDic = new Dictionary<string, List<string>>(request.Query.Count);
+            // a query string like ?test&[$slice} only fills the key part in dotnetcore and in IIS it only fills the value part, it's been decided to make it a key always
             foreach (var kvp in request.Query)
             {
                 var value = kvp.Value;
-                var currentKey = kvp.Key ?? string.Empty;
-                // a query string like ?test only fills the key part, in IIS it only fills the value part, aligning behaviors here (also waf tests on values only)
-                if (string.IsNullOrEmpty(value))
-                {
-                    value = currentKey;
-                    currentKey = string.Empty;
-                }
+                var currentKey = kvp.Key ?? string.Empty; // sometimes key can be null
 
                 if (!queryStringDic.TryGetValue(currentKey, out var list))
                 {
@@ -100,12 +94,6 @@ namespace Datadog.Trace.Util.Http
                     AddressesConstants.RequestCookies, cookiesDic
                 },
             };
-
-            if (routeDatas != null && routeDatas.Values.Any())
-            {
-                var routeDataDict = HttpRequestUtils.ConvertRouteValueDictionary(routeDatas.Values);
-                dict.Add(AddressesConstants.RequestPathParams, routeDataDict);
-            }
 
             return dict;
         }

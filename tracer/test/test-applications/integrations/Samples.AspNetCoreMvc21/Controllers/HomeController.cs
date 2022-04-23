@@ -14,6 +14,7 @@ namespace Samples.AspNetCoreMvc.Controllers
     {
         private const string CorrelationIdentifierHeaderName = "sample.correlation.identifier";
 
+        [HttpGet]
         public IActionResult Index()
         {
             ViewBag.ProfilerAttached = SampleHelpers.IsProfilerAttached();
@@ -26,7 +27,7 @@ namespace Samples.AspNetCoreMvc.Controllers
             return View(envVars.ToList());
         }
 
-        [Route("delay/{seconds}")]
+        [HttpGet("delay/{seconds}")]
         public IActionResult Delay(int seconds)
         {
             ViewBag.StackTrace = StackTraceHelper.GetUsefulStack();
@@ -71,6 +72,21 @@ namespace Samples.AspNetCoreMvc.Controllers
             else
             {
                 throw new Exception("Input was not a status code");
+            }
+        }
+
+        [Route("handled-exception")]
+        public IActionResult HandledException(string input)
+        {
+            AddCorrelationIdentifierToResponse();
+            try
+            {
+                throw new Exception("Exception thrown and caught");
+            }
+            catch (Exception ex)
+            {
+                SampleHelpers.TrySetExceptionOnActiveScope(ex);
+                return StatusCode(500, new { user_message = "There was an error, returning 500: " + ex.Message });
             }
         }
 

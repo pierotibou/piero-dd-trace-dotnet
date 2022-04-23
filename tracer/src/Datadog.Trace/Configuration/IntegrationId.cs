@@ -42,5 +42,10 @@ namespace Datadog.Trace.Configuration
         Oracle,
         SqlClient, // SQL Server
         Sqlite,
+        Serilog,
+        Log4Net,
+        NLog,
+        TraceAnnotations,
+        Grpc,
     }
 }

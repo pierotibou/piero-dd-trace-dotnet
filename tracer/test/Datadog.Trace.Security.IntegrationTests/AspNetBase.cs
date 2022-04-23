@@ -4,54 +4,80 @@
 // </copyright>
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Datadog.Trace.AppSec.EventModel;
 using Datadog.Trace.TestHelpers;
 using Datadog.Trace.Vendors.Newtonsoft.Json;
-using Xunit;
+using FluentAssertions;
+using VerifyTests;
+using VerifyXunit;
 using Xunit.Abstractions;
 
 namespace Datadog.Trace.Security.IntegrationTests
 {
+    [UsesVerify]
     public class AspNetBase : TestHelper
     {
         protected const string DefaultAttackUrl = "/Health/?arg=[$slice]";
+        protected const string DefaultRuleFile = "ruleset.3.0.json";
+        private const string Prefix = "Security.";
+        private static readonly Regex AppSecWafDuration = new(@"_dd.appsec.waf.duration: \d+\.0", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex AppSecWafDurationWithBindings = new(@"_dd.appsec.waf.duration_ext: \d+\.0", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex AppSecWafVersion = new(@"\s*_dd.appsec.waf.version: \d.\d.\d,?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex AppSecRuleVersion = new(@"\s*_dd.appsec.event_rules.version: \d.\d.\d,?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex AppSecEventRulesLoaded = new(@"\s*_dd.appsec.event_rules.loaded: \d+\.0,?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex AppSecErrorCount = new(@"\s*_dd.appsec.event_rules.error_count: 0.0,?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private readonly string _testName;
         private readonly HttpClient _httpClient;
         private readonly string _shutdownPath;
+        private readonly JsonSerializerSettings _jsonSerializerSettingsOrderProperty;
         private int _httpPort;
         private Process _process;
         private MockTracerAgent _agent;
 
-        public AspNetBase(string sampleName, ITestOutputHelper outputHelper, string shutdownPath, string samplesDir = null)
-            : base(sampleName, samplesDir ?? "test/test-applications/security", outputHelper)
+        public AspNetBase(string sampleName, ITestOutputHelper outputHelper, string shutdownPath, string samplesDir = null, string testName = null)
+            : base(Prefix + sampleName, samplesDir ?? "test/test-applications/security", outputHelper)
         {
+            _testName = Prefix + (testName ?? sampleName);
             _httpClient = new HttpClient();
             _shutdownPath = shutdownPath;
 
             // adding these header so we can later assert it was collect properly
             _httpClient.DefaultRequestHeaders.Add("X-FORWARDED", "86.242.244.246");
             _httpClient.DefaultRequestHeaders.Add("user-agent", "Mistake Not...");
+            _jsonSerializerSettingsOrderProperty = new JsonSerializerSettings
+            {
+                ContractResolver = new OrderedContractResolver()
+            };
         }
 
-        public async Task<MockTracerAgent> RunOnSelfHosted(bool enableSecurity, bool enableBlocking)
+        public Task<MockTracerAgent> RunOnSelfHosted(bool enableSecurity, string externalRulesFile = null, int? traceRateLimit = null)
         {
             if (_agent == null)
             {
                 var agentPort = TcpPortProvider.GetOpenPort();
-                _httpPort = TcpPortProvider.GetOpenPort();
-
                 _agent = new MockTracerAgent(agentPort);
             }
 
-            await StartSample(_agent.Port, arguments: null, aspNetCorePort: _httpPort, enableSecurity: enableSecurity, enableBlocking: enableBlocking);
-            return _agent;
+            StartSample(
+                _agent,
+                arguments: null,
+                enableSecurity: enableSecurity,
+                externalRulesFile: externalRulesFile,
+                traceRateLimit: traceRateLimit);
+
+            return Task.FromResult(_agent);
         }
 
         public void Dispose()
@@ -82,87 +108,194 @@ namespace Datadog.Trace.Security.IntegrationTests
             _agent?.Dispose();
         }
 
-        public async Task TestBlockedRequestAsync(MockTracerAgent agent, bool enableSecurity, HttpStatusCode expectedStatusCode, int expectedSpans, IEnumerable<Action<MockTracerAgent.Span>> assertOnSpans, string url)
+        public async Task TestAppSecRequestWithVerifyAsync(MockTracerAgent agent, string url, string body, int expectedSpans, int spansPerRequest, VerifySettings settings, string contentType = null, bool testInit = false)
         {
-            Func<Task<(HttpStatusCode StatusCode, string ResponseText)>> attack = () => SubmitRequest(url);
-            var resultRequests = await Task.WhenAll(attack(), attack(), attack(), attack(), attack());
-            agent.SpanFilters.Add(s => s.Tags.ContainsKey("http.url") && s.Tags["http.url"].IndexOf("Health", StringComparison.InvariantCultureIgnoreCase) > 0);
-            var spans = agent.WaitForSpans(expectedSpans);
-            Assert.Equal(expectedSpans, spans.Count);
+            var spans = await SendRequestsAsync(agent, url, body, expectedSpans, expectedSpans * spansPerRequest, string.Empty, contentType);
 
-            var expectedAppSecEvents = enableSecurity ? 5 : 0;
-            var actualAppSecEvents = 0;
-
-            var spanIds = spans.Select(s => s.SpanId);
-
-            foreach (var span in spans)
+            settings.ModifySerialization(serializationSettings => serializationSettings.MemberConverter<MockSpan, Dictionary<string, string>>(sp => sp.Tags, (target, value) =>
             {
-                // not all tags will have security events, only the route ones
-                var gotTag = span.Tags.TryGetValue(Tags.AppSecJson, out var json);
-                if (gotTag)
+                if (target.Tags.TryGetValue(Tags.AppSecJson, out var appsecJson))
                 {
-                    actualAppSecEvents++;
+                    var appSecJsonObj = JsonConvert.DeserializeObject<AppSecJson>(appsecJson);
+                    var orderedAppSecJson = JsonConvert.SerializeObject(appSecJsonObj, _jsonSerializerSettingsOrderProperty);
+                    target.Tags[Tags.AppSecJson] = orderedAppSecJson;
+                }
 
-                    // we only really care about these asserts if we're on an appsec span
-                    foreach (var assert in assertOnSpans)
-                    {
-                        assert(span);
-                    }
+                return target.Tags;
+            }));
+            settings.AddRegexScrubber(AppSecWafDuration, "_dd.appsec.waf.duration: 0.0");
+            settings.AddRegexScrubber(AppSecWafDurationWithBindings, "_dd.appsec.waf.duration_ext: 0.0");
+            if (!testInit)
+            {
+                settings.AddRegexScrubber(AppSecRuleVersion, string.Empty);
+                settings.AddRegexScrubber(AppSecWafVersion, string.Empty);
+                settings.AddRegexScrubber(AppSecErrorCount, string.Empty);
+                settings.AddRegexScrubber(AppSecEventRulesLoaded, string.Empty);
+            }
 
-                    var jsonObj = JsonConvert.DeserializeObject<AppSecJson>(json);
+            // Overriding the type name here as we have multiple test classes in the file
+            // Ensures that we get nice file nesting in Solution Explorer
+            await Verifier.Verify(spans, settings)
+                          .UseMethodName("_")
+                          .UseTypeName(GetTestName());
+        }
 
-                    var item = jsonObj.Triggers.FirstOrDefault();
-                    Assert.NotNull(item);
+        protected async Task TestRateLimiter(bool enableSecurity, string url, MockTracerAgent agent, int appsecTraceRateLimit, int totalRequests, int spansPerRequest)
+        {
+            var errorMargin = 0.15;
+            int warmupRequests = 29;
+            await SendRequestsAsync(agent, url, null, warmupRequests, warmupRequests * spansPerRequest, string.Empty, "Warmup");
 
-                    var attackEvent = item;
-                    var shouldBlock = expectedStatusCode == HttpStatusCode.Forbidden;
-                    Assert.Equal("Finds basic MongoDB SQL injection attempts", attackEvent.Rule.Name);
+            var iterations = 20;
 
-                    // presences of json tag implies span should carry other security tags
-                    var securityTags = new Dictionary<string, string>()
-                    {
-                        { "appsec.event", "true" },
-                        { "_dd.origin", "appsec" },
-                        { "http.useragent", "Mistake Not..." },
-                        { "actor.ip", "86.242.244.246" },
-                        { "http.request.headers.host", $"localhost:{_httpPort}" },
-                        { "http.request.headers.x-forwarded", "86.242.244.246" },
-                        { "http.request.headers.user-agent", "Mistake Not..." },
-                    };
-                    foreach (var kvp in securityTags)
-                    {
-                        Assert.True(span.Tags.TryGetValue(kvp.Key, out var tagValue), $"The tag {kvp.Key} was not found");
-                        Assert.Equal(kvp.Value, tagValue);
-                    }
+            var testStart = DateTime.UtcNow;
+            for (int i = 0; i < iterations; i++)
+            {
+                var start = DateTime.Now;
+                var nextBatch = start.AddSeconds(1);
+
+                await SendRequestsAsyncNoWaitForSpans(url, null, totalRequests, string.Empty);
+
+                var now = DateTime.Now;
+
+                if (now > nextBatch)
+                {
+                    // attempt to compensate for slow servers by increasing the error margin
+                    errorMargin *= 1.2;
+                    Console.WriteLine($"Failed to send all requests within a second now: {now:hh:mm:ss.fff}, nextBatch:{nextBatch:hh:mm:ss.fff}, error margin now: {errorMargin}");
+                }
+                else
+                {
+                    await Task.Delay(nextBatch - now);
                 }
             }
 
-            // asserts on request status code
-            Assert.All(resultRequests, r => Assert.Equal(r.StatusCode, expectedStatusCode));
+            var allSpansReceived = WaitForSpans(agent, iterations * totalRequests * spansPerRequest, "Overall wait", testStart);
 
-            // asserts on the security events
-            Assert.Equal(expectedAppSecEvents, actualAppSecEvents);
+            var groupedSpans = allSpansReceived.GroupBy(s =>
+            {
+                var time = new DateTimeOffset((s.Start / TimeConstants.NanoSecondsPerTick) + TimeConstants.UnixEpochInTicks, TimeSpan.Zero);
+                return time.Second;
+            });
+
+            var spansWithUserKeep = allSpansReceived.Where(s =>
+            {
+                s.Tags.TryGetValue(Tags.AppSecEvent, out var appsecevent);
+                s.Metrics.TryGetValue("_sampling_priority_v1", out var samplingPriority);
+                return ((enableSecurity && appsecevent == "true") || !enableSecurity) && samplingPriority == 2.0;
+            });
+
+            var spansWithoutUserKeep = allSpansReceived.Where(s =>
+            {
+                s.Tags.TryGetValue(Tags.AppSecEvent, out var appsecevent);
+                return ((enableSecurity && appsecevent == "true") || !enableSecurity) && (!s.Metrics.ContainsKey("_sampling_priority_v1") || s.Metrics["_sampling_priority_v1"] != 2.0);
+            });
+            var itemsCount = allSpansReceived.Count();
+            var appsecItemsCount = allSpansReceived.Where(s =>
+            {
+                s.Tags.TryGetValue(Tags.AppSecEvent, out var appsecevent);
+                return appsecevent == "true";
+            }).Count();
+            if (enableSecurity)
+            {
+                var message = "approximate because of parallel requests";
+                var rateLimitOverPeriod = appsecTraceRateLimit * iterations;
+                if (appsecItemsCount >= rateLimitOverPeriod)
+                {
+                    var excess = appsecItemsCount - rateLimitOverPeriod;
+                    var spansWithUserKeepCount = spansWithUserKeep.Count();
+                    var spansWithoutUserKeepCount = spansWithoutUserKeep.Count();
+
+                    Console.WriteLine($"spansWithUserKeepCount: {rateLimitOverPeriod}, appsecTraceRateLimit: {rateLimitOverPeriod}");
+                    Console.WriteLine($"spansWithoutUserKeepCount: {spansWithoutUserKeepCount}, excess: {excess}");
+
+                    spansWithUserKeepCount.Should().BeCloseTo(rateLimitOverPeriod, (uint)(rateLimitOverPeriod * errorMargin), message);
+                    spansWithoutUserKeepCount.Should().BeCloseTo(excess, (uint)(rateLimitOverPeriod * errorMargin), message);
+                }
+                else
+                {
+                    var spansWithUserKeepCount = spansWithUserKeep.Count();
+                    var spansWithoutUserKeepCount = spansWithoutUserKeep.Count();
+                    Console.WriteLine($"spansWithUserKeep: {spansWithUserKeepCount}, rateLimitOverPeriod: {rateLimitOverPeriod}");
+                    Console.WriteLine($"spansWithoutUserKeep: {spansWithoutUserKeepCount}, excess: 0");
+
+                    spansWithUserKeepCount.Should().BeLessThan(rateLimitOverPeriod + (int)(rateLimitOverPeriod * errorMargin));
+                    spansWithoutUserKeepCount.Should().BeCloseTo(0, (uint)(rateLimitOverPeriod * errorMargin), message);
+                }
+            }
+            else
+            {
+                spansWithoutUserKeep.Count().Should().Be(itemsCount);
+            }
         }
 
-        protected void SetHttpPort(int httpPort)
-        {
-            _httpPort = httpPort;
-        }
+        protected void SetHttpPort(int httpPort) => _httpPort = httpPort;
 
-        protected async Task<(HttpStatusCode StatusCode, string ResponseText)> SubmitRequest(string path)
+        protected async Task<(HttpStatusCode StatusCode, string ResponseText)> SubmitRequest(string path, string body, string contentType)
         {
             var url = $"http://localhost:{_httpPort}{path}";
-            var response = await _httpClient.GetAsync(url);
+            var response =
+                    body == null ?
+                        await _httpClient.GetAsync(url) :
+                        await _httpClient.PostAsync(url, new StringContent(body, Encoding.UTF8, contentType ?? "application/json"));
             var responseText = await response.Content.ReadAsStringAsync();
             return (response.StatusCode, responseText);
         }
 
-        private async Task StartSample(int traceAgentPort, string arguments, int? aspNetCorePort = null, string packageVersion = "", int? statsdPort = null, string framework = "", string path = "/Home", bool enableSecurity = true, bool enableBlocking = true)
+        protected virtual string GetTestName() => _testName;
+
+        private async Task<IImmutableList<MockSpan>> SendRequestsAsync(MockTracerAgent agent, string url, string body, int numberOfAttacks, int expectedSpans, string phase, string contentType = null)
+        {
+            var minDateTime = DateTime.UtcNow; // when ran sequentially, we get the spans from the previous tests!
+            await SendRequestsAsyncNoWaitForSpans(url, body, numberOfAttacks, contentType);
+
+            return WaitForSpans(agent, expectedSpans, phase, minDateTime);
+        }
+
+        private async Task SendRequestsAsyncNoWaitForSpans(string url, string body, int numberOfAttacks, string contentType = null)
+        {
+            var batchSize = 4;
+            for (int x = 0; x < numberOfAttacks;)
+            {
+                var attacks = new ConcurrentBag<Task<(HttpStatusCode, string)>>();
+                for (int y = 0; y < batchSize && x < numberOfAttacks;)
+                {
+                    x++;
+                    y++;
+                    attacks.Add(SubmitRequest(url, body, contentType));
+                }
+
+                await Task.WhenAll(attacks);
+            }
+        }
+
+        private IImmutableList<MockSpan> WaitForSpans(MockTracerAgent agent, int expectedSpans, string phase, DateTime minDateTime)
+        {
+            var urls = new[] { "Health", "Home/Upload", "data" };
+            agent.SpanFilters.Add(s => s.Tags.ContainsKey("http.url") && urls.Any(url => s.Tags["http.url"].IndexOf(url, StringComparison.InvariantCultureIgnoreCase) > 0));
+
+            var spans = agent.WaitForSpans(expectedSpans, minDateTime: minDateTime);
+            var message =
+                string.IsNullOrWhiteSpace(phase) ?
+                    string.Empty :
+                    string.Format("This is phase: {0}", phase);
+            spans.Count.Should().Be(expectedSpans, message);
+
+            return spans;
+        }
+
+        private void StartSample(
+            MockTracerAgent agent,
+            string arguments,
+            string packageVersion = "",
+            string framework = "",
+            bool enableSecurity = true,
+            string externalRulesFile = null,
+            int? traceRateLimit = null)
         {
             var sampleAppPath = EnvironmentHelper.GetSampleApplicationPath(packageVersion, framework);
             // get path to sample app that the profiler will attach to
-            const int mstimeout = 5000;
-            var message = "Now listening on:";
+            const int mstimeout = 15_000;
 
             if (!File.Exists(sampleAppPath))
             {
@@ -174,17 +307,18 @@ namespace Datadog.Trace.Security.IntegrationTests
             Output.WriteLine($"Starting Application: {sampleAppPath}");
             var executable = EnvironmentHelper.IsCoreClr() ? EnvironmentHelper.GetSampleExecutionSource() : sampleAppPath;
             var args = EnvironmentHelper.IsCoreClr() ? $"{sampleAppPath} {arguments ?? string.Empty}" : arguments;
+            EnvironmentHelper.CustomEnvironmentVariables.Add("DD_APPSEC_TRACE_RATE_LIMIT", traceRateLimit?.ToString());
+            EnvironmentHelper.CustomEnvironmentVariables.Add("DD_APPSEC_WAF_TIMEOUT", 1_000_000.ToString());
 
+            int? aspNetCorePort = default;
             _process = ProfilerHelper.StartProcessWithProfiler(
                 executable,
                 EnvironmentHelper,
+                agent,
                 args,
-                traceAgentPort: traceAgentPort,
-                statsdPort: statsdPort,
-                aspNetCorePort: aspNetCorePort.GetValueOrDefault(5000),
+                aspNetCorePort: 0,
                 enableSecurity: enableSecurity,
-                enableBlocking: enableBlocking,
-                callTargetEnabled: true);
+                externalRulesFile: externalRulesFile);
 
             // then wait server ready
             var wh = new EventWaitHandle(false, EventResetMode.AutoReset);
@@ -192,8 +326,10 @@ namespace Datadog.Trace.Security.IntegrationTests
             {
                 if (args.Data != null)
                 {
-                    if (args.Data.Contains(message))
+                    if (args.Data.Contains("Now listening on:"))
                     {
+                        var splitIndex = args.Data.LastIndexOf(':');
+                        aspNetCorePort = int.Parse(args.Data.Substring(splitIndex + 1));
                         wh.Set();
                     }
 
@@ -213,46 +349,13 @@ namespace Datadog.Trace.Security.IntegrationTests
             _process.BeginErrorReadLine();
 
             wh.WaitOne(mstimeout);
-
-            var maxMillisecondsToWait = 15_000;
-            var intervalMilliseconds = 500;
-            var intervals = maxMillisecondsToWait / intervalMilliseconds;
-            var serverReady = false;
-            var responseText = string.Empty;
-
-            // wait for server to be ready to receive requests
-            while (intervals-- > 0)
-            {
-                HttpStatusCode statusCode = default;
-
-                try
-                {
-                    (statusCode, responseText) = await SubmitRequest(path);
-                }
-                catch (Exception ex)
-                {
-                    Output.WriteLine("SubmitRequest failed during warmup with error " + ex);
-                }
-
-                serverReady = statusCode == HttpStatusCode.OK;
-                if (!serverReady)
-                {
-                    Output.WriteLine(responseText);
-                }
-
-                if (serverReady)
-                {
-                    break;
-                }
-
-                Thread.Sleep(intervalMilliseconds);
-            }
-
-            if (!serverReady)
+            if (!aspNetCorePort.HasValue)
             {
                 _process.Kill();
-                throw new Exception($"Couldn't verify the application is ready to receive requests: {responseText}");
+                throw new Exception("Unable to determine port application is listening on");
             }
+
+            _httpPort = aspNetCorePort.Value;
         }
     }
 }

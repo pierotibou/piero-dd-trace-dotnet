@@ -20,7 +20,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AdoNet
             SetServiceVersion("1.0.0");
         }
 
-        [Theory]
+        [SkippableTheory]
         [MemberData(nameof(PackageVersions.MySqlConnector), MemberType = typeof(PackageVersions))]
         [Trait("Category", "EndToEnd")]
         public void SubmitsTraces(string packageVersion)
@@ -45,8 +45,9 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AdoNet
             const string expectedOperationName = dbType + ".query";
             const string expectedServiceName = "Samples.MySqlConnector-" + dbType;
 
+            using var telemetry = this.ConfigureTelemetry();
             using var agent = EnvironmentHelper.GetMockAgent();
-            using var process = RunSampleAndWaitForExit(agent.Port, packageVersion: packageVersion);
+            using var process = RunSampleAndWaitForExit(agent, packageVersion: packageVersion);
             var spans = agent.WaitForSpans(expectedSpanCount, operationName: expectedOperationName);
             int actualSpanCount = spans.Count(s => s.ParentId.HasValue && !s.Resource.Equals("SHOW WARNINGS", StringComparison.OrdinalIgnoreCase)); // Remove unexpected DB spans from the calculation
 
@@ -60,6 +61,8 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AdoNet
                 Assert.Equal(dbType, span.Tags[Tags.DbType]);
                 Assert.False(span.Tags?.ContainsKey(Tags.Version), "External service span should not have service version tag.");
             }
+
+            telemetry.AssertIntegrationEnabled(IntegrationId.MySql);
         }
 
         [SkippableFact]
@@ -71,13 +74,15 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AdoNet
 
             SetEnvironmentVariable($"DD_TRACE_{nameof(IntegrationId.MySql)}_ENABLED", "false");
 
+            using var telemetry = this.ConfigureTelemetry();
             string packageVersion = PackageVersions.MySqlConnector.First()[0] as string;
             using var agent = EnvironmentHelper.GetMockAgent();
-            using var process = RunSampleAndWaitForExit(agent.Port, packageVersion: packageVersion);
+            using var process = RunSampleAndWaitForExit(agent, packageVersion: packageVersion);
             var spans = agent.WaitForSpans(totalSpanCount, returnAllOperations: true);
 
             Assert.NotEmpty(spans);
             Assert.Empty(spans.Where(s => s.Name.Equals(expectedOperationName)));
+            telemetry.AssertIntegrationDisabled(IntegrationId.MySql);
         }
     }
 }

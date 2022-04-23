@@ -12,6 +12,7 @@ using Datadog.Trace.AspNet;
 using Datadog.Trace.Configuration;
 using Datadog.Trace.ExtensionMethods;
 using Datadog.Trace.Logging;
+using Datadog.Trace.Propagators;
 using Datadog.Trace.Tagging;
 using Datadog.Trace.Util;
 
@@ -25,6 +26,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
         internal const string HttpContextKey = "__Datadog.Trace.ClrProfiler.Integrations.AspNetMvcIntegration";
 
         private const string OperationName = "aspnet-mvc.request";
+        private const string ChildActionOperationName = "aspnet-mvc.request.child-action";
 
         private const string RouteCollectionRouteTypeName = "System.Web.Mvc.Routing.RouteCollectionRoute";
 
@@ -43,7 +45,6 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
             try
             {
                 var httpContext = controllerContext.HttpContext;
-
                 if (httpContext == null)
                 {
                     return null;
@@ -51,9 +52,10 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
 
                 Span span = null;
                 // integration enabled, go create a scope!
-                if (Tracer.Instance.Settings.IsIntegrationEnabled(IntegrationId))
+                var tracer = Tracer.Instance;
+                if (tracer.Settings.IsIntegrationEnabled(IntegrationId))
                 {
-                    var newResourceNamesEnabled = Tracer.Instance.Settings.RouteTemplateResourceNamesEnabled;
+                    var newResourceNamesEnabled = tracer.Settings.RouteTemplateResourceNamesEnabled;
                     string host = httpContext.Request.Headers.Get("Host");
                     string httpMethod = httpContext.Request.HttpMethod.ToUpperInvariant();
                     string url = httpContext.Request.RawUrl.ToLowerInvariant();
@@ -63,6 +65,14 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
                     Route route = routeData?.Route as Route;
                     RouteValueDictionary routeValues = routeData?.Values;
                     bool wasAttributeRouted = false;
+                    bool isChildAction = controllerContext.ParentActionViewContext.RouteData?.Values["controller"] is not null;
+
+                    if (isChildAction && newResourceNamesEnabled)
+                    {
+                        // For child actions, we want to stick to what was requested in the http request.
+                        // And the child action being a child, then we have already computed the resourcename.
+                        resourceName = httpContext.Items[SharedItems.HttpContextPropagatedResourceNameKey] as string;
+                    }
 
                     if (route == null && routeData?.Route.GetType().FullName == RouteCollectionRouteTypeName)
                     {
@@ -75,28 +85,32 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
                             wasAttributeRouted = true;
                             route = routeMatches[0].Route as Route;
                             routeValues = routeMatches[0].Values;
-
-                            if (route != null)
-                            {
-                                var resourceUrl = route.Url?.ToLowerInvariant() ?? string.Empty;
-                                if (resourceUrl.FirstOrDefault() != '/')
-                                {
-                                    resourceUrl = string.Concat("/", resourceUrl);
-                                }
-
-                                resourceName = $"{httpMethod} {resourceUrl}";
-                            }
                         }
                     }
 
                     string routeUrl = route?.Url;
-                    string areaName = (routeValues?.GetValueOrDefault("area") as string)?.ToLowerInvariant();
-                    string controllerName = (routeValues?.GetValueOrDefault("controller") as string)?.ToLowerInvariant();
-                    string actionName = (routeValues?.GetValueOrDefault("action") as string)?.ToLowerInvariant();
+                    string areaName;
+                    string controllerName;
+                    string actionName;
 
-                    if (newResourceNamesEnabled && string.IsNullOrEmpty(resourceName) && !string.IsNullOrEmpty(routeUrl))
+                    if ((wasAttributeRouted || newResourceNamesEnabled) && string.IsNullOrEmpty(resourceName) && !string.IsNullOrEmpty(routeUrl))
                     {
-                        resourceName = $"{httpMethod} /{routeUrl.ToLowerInvariant()}";
+                        resourceName = AspNetResourceNameHelper.CalculateResourceName(
+                            httpMethod: httpMethod,
+                            routeTemplate: routeUrl,
+                            routeValues,
+                            defaults: wasAttributeRouted ? null : route.Defaults,
+                            out areaName,
+                            out controllerName,
+                            out actionName,
+                            expandRouteTemplates: newResourceNamesEnabled && tracer.Settings.ExpandRouteTemplatesEnabled);
+                    }
+                    else
+                    {
+                        // just grab area/controller/action directly
+                        areaName = (routeValues?.GetValueOrDefault("area") as string)?.ToLowerInvariant();
+                        controllerName = (routeValues?.GetValueOrDefault("controller") as string)?.ToLowerInvariant();
+                        actionName = (routeValues?.GetValueOrDefault("action") as string)?.ToLowerInvariant();
                     }
 
                     if (string.IsNullOrEmpty(resourceName) && httpContext.Request.Url != null)
@@ -111,32 +125,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
                         resourceName = $"{httpMethod} {controllerName}.{actionName}";
                     }
 
-                    // Replace well-known routing tokens
-                    resourceName =
-                        resourceName
-                           .Replace("{area}", areaName)
-                           .Replace("{controller}", controllerName)
-                           .Replace("{action}", actionName);
-
-                    if (newResourceNamesEnabled && !wasAttributeRouted && routeValues is not null && route is not null)
-                    {
-                        // Remove unused parameters from conventional route templates
-                        // Don't bother with routes defined using attribute routing
-                        foreach (var parameter in route.Defaults)
-                        {
-                            var parameterName = parameter.Key;
-                            if (parameterName != "area"
-                                && parameterName != "controller"
-                                && parameterName != "action"
-                                && !routeValues.ContainsKey(parameterName))
-                            {
-                                resourceName = resourceName.Replace($"/{{{parameterName}}}", string.Empty);
-                            }
-                        }
-                    }
-
                     SpanContext propagatedContext = null;
-                    var tracer = Tracer.Instance;
                     var tagsFromHeaders = Enumerable.Empty<KeyValuePair<string, string>>();
 
                     if (tracer.InternalActiveScope == null)
@@ -155,7 +144,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
                     }
 
                     var tags = new AspNetTags();
-                    scope = Tracer.Instance.StartActiveInternal(OperationName, propagatedContext, tags: tags);
+                    scope = tracer.StartActiveInternal(isChildAction ? ChildActionOperationName : OperationName, propagatedContext, tags: tags);
                     span = scope.Span;
 
                     span.DecorateWebServerSpan(
@@ -173,11 +162,13 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
 
                     tags.SetAnalyticsSampleRate(IntegrationId, tracer.Settings, enabledWithGlobalSetting: true);
 
-                    if (newResourceNamesEnabled)
+                    if (newResourceNamesEnabled && string.IsNullOrEmpty(httpContext.Items[SharedItems.HttpContextPropagatedResourceNameKey] as string))
                     {
                         // set the resource name in the HttpContext so TracingHttpModule can update root span
-                        httpContext.Items[SharedConstants.HttpContextPropagatedResourceNameKey] = resourceName;
+                        httpContext.Items[SharedItems.HttpContextPropagatedResourceNameKey] = resourceName;
                     }
+
+                    tracer.TracerManager.Telemetry.IntegrationGeneratedSpan(IntegrationId);
                 }
             }
             catch (Exception ex)
@@ -189,5 +180,4 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
         }
     }
 }
-
 #endif

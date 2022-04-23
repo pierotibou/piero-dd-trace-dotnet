@@ -18,6 +18,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
     public class MsTestV2Tests : TestHelper
     {
         private const string TestSuiteName = "Samples.MSTestTests.TestSuite";
+        private const string TestBundleName = "Samples.MSTestTests";
 
         public MsTestV2Tests(ITestOutputHelper output)
             : base("MSTestTests", output)
@@ -32,7 +33,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
         public void SubmitTraces(string packageVersion)
         {
             var version = string.IsNullOrEmpty(packageVersion) ? new Version("2.2.8") : new Version(packageVersion);
-            List<MockTracerAgent.Span> spans = null;
+            List<MockSpan> spans = null;
             var expectedSpanCount = version.CompareTo(new Version("2.2.5")) < 0 ? 13 : 15;
 
             try
@@ -42,7 +43,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
                 SetEnvironmentVariable("DD_DUMP_ILREWRITE_ENABLED", "1");
 
                 using (var agent = EnvironmentHelper.GetMockAgent())
-                using (ProcessResult processResult = RunDotnetTestSampleAndWaitForExit(agent.Port, packageVersion: packageVersion))
+                using (ProcessResult processResult = RunDotnetTestSampleAndWaitForExit(agent, packageVersion: packageVersion))
                 {
                     spans = agent.WaitForSpans(expectedSpanCount)
                         .Where(s => !(s.Tags.TryGetValue(Tags.InstrumentationName, out var sValue) && sValue == "HttpMessageHandler"))
@@ -62,6 +63,9 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
                         // check the runtime values
                         CheckRuntimeValues(targetSpan);
 
+                        // check the bundle name
+                        AssertTargetSpanEqual(targetSpan, TestTags.Bundle, TestBundleName);
+
                         // check the suite name
                         AssertTargetSpanEqual(targetSpan, TestTags.Suite, TestSuiteName);
 
@@ -78,11 +82,23 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
                         // checks the runtime id tag
                         AssertTargetSpanExists(targetSpan, Tags.RuntimeId);
 
+                        // checks the source tags
+                        AssertTargetSpanExists(targetSpan, TestTags.SourceFile);
+
+                        // checks code owners
+                        AssertTargetSpanExists(targetSpan, TestTags.CodeOwners);
+
                         // checks the origin tag
                         CheckOriginTag(targetSpan);
 
                         // Check the Environment
                         AssertTargetSpanEqual(targetSpan, Tags.Env, "integration_tests");
+
+                        // Language
+                        AssertTargetSpanEqual(targetSpan, Tags.Language, TracerConstants.Language);
+
+                        // CI Library Language
+                        AssertTargetSpanEqual(targetSpan, CommonTags.LibraryVersion, TracerConstants.AssemblyVersion);
 
                         // check specific test span
                         switch (targetSpan.Tags[TestTags.Name])
@@ -157,7 +173,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
             }
         }
 
-        private static void WriteSpans(List<MockTracerAgent.Span> spans)
+        private static void WriteSpans(List<MockSpan> spans)
         {
             if (spans is null || spans.Count == 0)
             {
@@ -190,36 +206,36 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
             Console.WriteLine("***********************************");
         }
 
-        private static void AssertTargetSpanAnyOf(MockTracerAgent.Span targetSpan, string key, params string[] values)
+        private static void AssertTargetSpanAnyOf(MockSpan targetSpan, string key, params string[] values)
         {
             string actualValue = targetSpan.Tags[key];
             Assert.Contains(actualValue, values);
             targetSpan.Tags.Remove(key);
         }
 
-        private static void AssertTargetSpanEqual(MockTracerAgent.Span targetSpan, string key, string value)
+        private static void AssertTargetSpanEqual(MockSpan targetSpan, string key, string value)
         {
             Assert.Equal(value, targetSpan.Tags[key]);
             targetSpan.Tags.Remove(key);
         }
 
-        private static void AssertTargetSpanExists(MockTracerAgent.Span targetSpan, string key)
+        private static void AssertTargetSpanExists(MockSpan targetSpan, string key)
         {
             Assert.True(targetSpan.Tags.ContainsKey(key));
             targetSpan.Tags.Remove(key);
         }
 
-        private static void AssertTargetSpanContains(MockTracerAgent.Span targetSpan, string key, string value)
+        private static void AssertTargetSpanContains(MockSpan targetSpan, string key, string value)
         {
             Assert.Contains(value, targetSpan.Tags[key]);
             targetSpan.Tags.Remove(key);
         }
 
-        private static void CheckCIEnvironmentValuesDecoration(MockTracerAgent.Span targetSpan)
+        private static void CheckCIEnvironmentValuesDecoration(MockSpan targetSpan)
         {
             var context = new SpanContext(null, null, null, null);
             var span = new Span(context, DateTimeOffset.UtcNow);
-            CIEnvironmentValues.DecorateSpan(span);
+            CIEnvironmentValues.Instance.DecorateSpan(span);
 
             AssertEqual(CommonTags.CIProvider);
             AssertEqual(CommonTags.CIPipelineId);
@@ -253,7 +269,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
             }
         }
 
-        private static void CheckRuntimeValues(MockTracerAgent.Span targetSpan)
+        private static void CheckRuntimeValues(MockSpan targetSpan)
         {
             FrameworkDescription framework = FrameworkDescription.Instance;
 
@@ -265,25 +281,25 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
             AssertTargetSpanEqual(targetSpan, CommonTags.OSVersion, Environment.OSVersion.VersionString);
         }
 
-        private static void CheckTraitsValues(MockTracerAgent.Span targetSpan)
+        private static void CheckTraitsValues(MockSpan targetSpan)
         {
             // Check the traits tag value
             AssertTargetSpanEqual(targetSpan, TestTags.Traits, "{\"Category\":[\"Category01\"],\"Compatibility\":[\"Windows\",\"Linux\"]}");
         }
 
-        private static void CheckOriginTag(MockTracerAgent.Span targetSpan)
+        private static void CheckOriginTag(MockSpan targetSpan)
         {
             // Check the test origin tag
             AssertTargetSpanEqual(targetSpan, Tags.Origin, TestTags.CIAppTestOriginName);
         }
 
-        private static void CheckSimpleTestSpan(MockTracerAgent.Span targetSpan)
+        private static void CheckSimpleTestSpan(MockSpan targetSpan)
         {
             // Check the Test Status
             AssertTargetSpanEqual(targetSpan, TestTags.Status, TestTags.StatusPass);
         }
 
-        private static void CheckSimpleSkipFromAttributeTest(MockTracerAgent.Span targetSpan)
+        private static void CheckSimpleSkipFromAttributeTest(MockSpan targetSpan)
         {
             // Check the Test Status
             AssertTargetSpanEqual(targetSpan, TestTags.Status, TestTags.StatusSkip);
@@ -292,7 +308,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.CI
             AssertTargetSpanEqual(targetSpan, TestTags.SkipReason, "Simple skip reason");
         }
 
-        private static void CheckSimpleErrorTest(MockTracerAgent.Span targetSpan)
+        private static void CheckSimpleErrorTest(MockSpan targetSpan)
         {
             // Check the Test Status
             AssertTargetSpanEqual(targetSpan, TestTags.Status, TestTags.StatusFail);

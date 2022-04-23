@@ -12,7 +12,6 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Datadog.Trace.TestHelpers;
 using FluentAssertions;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
 using Xunit.Abstractions;
@@ -136,25 +135,13 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.VersionConflict
             manualSpan.TraceId.Should().Be(secondTraceId);
             manualSpan.Name.Should().Be("Manual");
 
-            var nestedSpans = spans.Where(s => s.ParentId == manualSpan.SpanId).OrderBy(s => s.Start).ToArray();
-            nestedSpans.Should().HaveCount(3);
+            var nestedSpans = spans.Where(s => s.ParentId == manualSpan.SpanId).ToArray();
+            nestedSpans.Should()
+                       .HaveCount(3)
+                       .And.OnlyContain(s => s.TraceId == secondTraceId);
 
-            // Validate the first http request and its subspans
-            var firstHttpSpan = nestedSpans[0];
-
-            firstHttpSpan.TraceId.Should().Be(secondTraceId);
-            firstHttpSpan.Name.Should().Be("http.request");
-
-            // Validate the second http request and its subspans
-            var secondHttpSpan = nestedSpans[1];
-
-            secondHttpSpan.TraceId.Should().Be(secondTraceId);
-            secondHttpSpan.Name.Should().Be("http.request");
-
-            var manualInnerSpan = nestedSpans[2];
-
-            manualInnerSpan.TraceId.Should().Be(secondTraceId);
-            manualInnerSpan.Name.Should().Be("Child");
+            nestedSpans.Where(s => s.Name == "http.request").Should().HaveCount(2);
+            nestedSpans.Where(s => s.Name == "Child").Should().HaveCount(1);
 
             // Make sure there is no extra root span
             var rootTraces = spans.Where(s => s.ParentId == null).ToList();
@@ -165,15 +152,15 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.VersionConflict
             var httpSpans = spans.Where(s => s.Name == "http.request");
             httpSpans.Should()
                 .HaveCount(2)
-                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == (double)SamplingPriority.UserKeep)
-                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == (double)SamplingPriority.UserReject);
+                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == SamplingPriorityValues.UserKeep)
+                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == SamplingPriorityValues.UserReject);
 
             // Check that the sampling priority got propagated to the target service
             var targetSpans = spans.Where(s => s.Name == "aspnet.request" && s.ParentId != null);
             targetSpans.Should()
                 .HaveCount(2)
-                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == (double)SamplingPriority.UserKeep)
-                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == (double)SamplingPriority.UserReject);
+                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == SamplingPriorityValues.UserKeep)
+                .And.ContainSingle(s => s.Metrics[Metrics.SamplingPriority] == SamplingPriorityValues.UserReject);
 
             // The sampling priority for the root trace should be UserReject
             // Depending on the parentTrace argument, the root trace is either the manual one or the automatic one
@@ -209,7 +196,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.VersionConflict
 
             var rootSpan = spans.Single(s => s.Name == "aspnet.request");
 
-            rootSpan.Metrics.Should().Contain(new KeyValuePair<string, double>(Metrics.SamplingPriority, (double)SamplingPriority.UserKeep));
+            rootSpan.Metrics.Should().Contain(new KeyValuePair<string, double>(Metrics.SamplingPriority, SamplingPriorityValues.UserKeep));
 
             var result = JObject.Parse(content);
 
@@ -220,7 +207,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.VersionConflict
             result["ServiceName"].Value<string>().Should().Be(mvcSpan.Service);
         }
 
-        private static bool VerifySpan(MockTracerAgent.Span span, bool parentTrace)
+        private static bool VerifySpan(MockSpan span, bool parentTrace)
         {
             if (!span.Metrics.ContainsKey(Metrics.SamplingPriority))
             {

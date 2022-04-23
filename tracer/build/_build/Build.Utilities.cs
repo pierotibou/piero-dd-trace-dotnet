@@ -154,7 +154,7 @@ partial class Build
 
     Target GeneratePackageVersions => _ => _
        .Description("Regenerate the PackageVersions props and .cs files")
-       .After(UpdateIntegrationDefinitions)
+       .DependsOn(Clean, Restore, CreateRequiredDirectories, CompileManagedSrc, PublishManagedProfiler)
        .Executes(async () =>
        {
            var testDir = Solution.GetProject(Projects.ClrProfilerIntegrationTests).Directory;
@@ -186,24 +186,10 @@ partial class Build
             await UpdateVendorsTool.UpdateVendors(downloadDirectory, vendorDirectory);
        });
 
-    Target UpdateIntegrationDefinitions => _ => _
-       .Description("Update the integration definitions file")
-       .DependsOn(Clean, Restore, CreateRequiredDirectories, CompileManagedSrc, PublishManagedProfiler) // We load the dlls from the output, so need to do a clean build
-       .Executes(() =>
-        {
-            var assemblies = TracerHomeDirectory
-                            .GlobFiles("**/Datadog.Trace.dll")
-                            .Select(x => x.ToString())
-                            .ToList();
-
-            var integrations = GenerateIntegrationDefinitions.GetAllIntegrations(assemblies);
-
-            GenerateIntegrationDefinitions.Run(integrations, TracerDirectory);
-        });
-
     Target UpdateVersion => _ => _
        .Description("Update the version number for the tracer")
        .Before(Clean, BuildTracerHome)
+       .Before(Clean, BuildProfilerHome)
        .Requires(() => Version)
        .Executes(() =>
         {
@@ -215,6 +201,6 @@ partial class Build
        .DependsOn(Clean, BuildTracerHome)
        .Executes(() =>
         {
-            SyncMsiContent.Run(TracerDirectory, TracerHomeDirectory);
+            SyncMsiContent.Run(SharedDirectory, TracerHomeDirectory);
         });
 }

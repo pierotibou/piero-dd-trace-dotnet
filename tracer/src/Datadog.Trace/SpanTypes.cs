@@ -53,7 +53,7 @@ namespace Datadog.Trace
         public const string Custom = "custom";
 
         /// <summary>
-        /// The span type for a Test instegration.
+        /// The span type for a Test integration.
         /// </summary>
         public const string Test = "test";
 
@@ -81,5 +81,10 @@ namespace Datadog.Trace
         /// The span type for db integrations (including couchbase)
         /// </summary>
         public const string Db = "db";
+
+        /// <summary>
+        /// The span type for GRPC integrations
+        /// </summary>
+        internal const string Grpc = "grpc";
     }
 }

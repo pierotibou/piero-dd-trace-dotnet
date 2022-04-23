@@ -63,6 +63,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AspNetCore
             { "/ping", 200 },
             { "/branch/ping", 200 },
             { "/branch/not-found", 404 },
+            { "/handled-exception", 500 },
         };
 
         public void Dispose()
@@ -119,7 +120,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AspNetCore
                         Agent = new MockTracerAgent(initialAgentPort);
                         Agent.SpanFilters.Add(IsNotServerLifeCheck);
                         WriteToOutput($"Starting aspnetcore sample, agentPort: {Agent.Port}, samplePort: {HttpPort}");
-                        _process = helper.StartSample(Agent.Port, arguments: null, packageVersion: string.Empty, aspNetCorePort: HttpPort);
+                        _process = helper.StartSample(Agent, arguments: null, packageVersion: string.Empty, aspNetCorePort: HttpPort);
                     }
                 }
 
@@ -154,11 +155,11 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AspNetCore
                 Agent?.Dispose();
             }
 
-            public async Task<IImmutableList<MockTracerAgent.Span>> WaitForSpans(string path)
+            public async Task<IImmutableList<MockSpan>> WaitForSpans(string path, bool post = false)
             {
                 var testStart = DateTime.UtcNow;
 
-                await SubmitRequest(path);
+                await SubmitRequest(path, post);
                 return Agent.WaitForSpans(count: 1, minDateTime: testStart, returnAllOperations: true);
             }
 
@@ -223,7 +224,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AspNetCore
                 }
             }
 
-            private bool IsNotServerLifeCheck(MockTracerAgent.Span span)
+            private bool IsNotServerLifeCheck(MockSpan span)
             {
                 var url = SpanExpectation.GetTag(span, Tags.HttpUrl);
                 if (url == null)
@@ -234,9 +235,18 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.AspNetCore
                 return !url.Contains("alive-check") && !url.Contains("shutdown");
             }
 
-            private async Task<HttpStatusCode> SubmitRequest(string path)
+            private async Task<HttpStatusCode> SubmitRequest(string path, bool post = false)
             {
-                HttpResponseMessage response = await _httpClient.GetAsync($"http://localhost:{HttpPort}{path}");
+                HttpResponseMessage response;
+                if (!post)
+                {
+                    response = await _httpClient.GetAsync($"http://localhost:{HttpPort}{path}");
+                }
+                else
+                {
+                    response = await _httpClient.PostAsync($"http://localhost:{HttpPort}{path}", null);
+                }
+
                 string responseText = await response.Content.ReadAsStringAsync();
                 WriteToOutput($"[http] {response.StatusCode} {responseText}");
                 return response.StatusCode;

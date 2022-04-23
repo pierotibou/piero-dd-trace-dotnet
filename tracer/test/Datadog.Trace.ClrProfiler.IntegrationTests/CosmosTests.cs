@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Datadog.Trace.Configuration;
 using Datadog.Trace.TestHelpers;
 using FluentAssertions;
 using Xunit;
@@ -27,11 +28,11 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             if (!Environment.Is64BitProcess)
             {
                 using var agent = EnvironmentHelper.GetMockAgent();
-                using var processResult = RunSampleAndWaitForExit(agent.Port, arguments: $"{TestPrefix}");
+                using var processResult = RunSampleAndWaitForExit(agent, arguments: $"{TestPrefix}");
             }
         }
 
-        [SkippableTheory]
+        [SkippableTheory(Skip = "Cosmos emulator is too flaky at the moment")]
         [MemberData(nameof(PackageVersions.CosmosDb), MemberType = typeof(PackageVersions))]
         [Trait("Category", "EndToEnd")]
         [Trait("RunOnWindows", "True")]
@@ -40,8 +41,10 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
         public void SubmitsTraces(string packageVersion)
         {
             var expectedSpanCount = 14;
+
+            using var telemetry = this.ConfigureTelemetry();
             using (var agent = EnvironmentHelper.GetMockAgent())
-            using (RunSampleAndWaitForExit(agent.Port, arguments: $"{TestPrefix}", packageVersion: packageVersion))
+            using (RunSampleAndWaitForExit(agent, arguments: $"{TestPrefix}", packageVersion: packageVersion))
             {
                 var spans = agent.WaitForSpans(expectedSpanCount, operationName: ExpectedOperationName);
                 spans.Count.Should().BeGreaterOrEqualTo(expectedSpanCount, $"Expecting at least {expectedSpanCount} spans, only received {spans.Count}");
@@ -81,6 +84,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
 
                 dbTags.Should().Be(10);
                 containerTags.Should().Be(4);
+                telemetry.AssertIntegrationEnabled(IntegrationId.CosmosDb);
             }
         }
     }

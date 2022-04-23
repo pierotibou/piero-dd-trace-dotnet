@@ -1,0 +1,12 @@
+trigger:
+  branches:
+    include:
+      - master
+
+pr:
+  branches:
+    include:
+      - '*' # default
+
+steps:
+- bash: echo "hello world"

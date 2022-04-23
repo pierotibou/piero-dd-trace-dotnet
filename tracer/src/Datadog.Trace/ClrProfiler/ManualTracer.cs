@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using Datadog.Trace.DuckTyping;
 using Datadog.Trace.Logging;
+using Datadog.Trace.Propagators;
 using Datadog.Trace.Util;
 
 namespace Datadog.Trace.ClrProfiler
@@ -80,14 +81,14 @@ namespace Datadog.Trace.ClrProfiler
             _parent.SetDistributedTrace(value);
         }
 
-        SamplingPriority? IDistributedTracer.GetSamplingPriority()
+        int? IDistributedTracer.GetSamplingPriority()
         {
-            return (SamplingPriority?)_parent.GetSamplingPriority();
+            return _parent.GetSamplingPriority();
         }
 
-        void IDistributedTracer.SetSamplingPriority(SamplingPriority? samplingPriority)
+        void IDistributedTracer.SetSamplingPriority(int? samplingPriority)
         {
-            _parent.SetSamplingPriority((int?)samplingPriority);
+            _parent.SetSamplingPriority(samplingPriority);
         }
 
         string IDistributedTracer.GetRuntimeId() => _parent.GetAutomaticRuntimeId();

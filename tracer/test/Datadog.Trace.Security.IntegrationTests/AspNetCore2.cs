@@ -4,54 +4,17 @@
 // </copyright>
 
 #if NETCOREAPP2_1
+
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Threading.Tasks;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace Datadog.Trace.Security.IntegrationTests
 {
-    public class AspNetCore2 : AspNetBase, IDisposable
+    public class AspNetCore2 : AspNetCoreBase, IDisposable
     {
         public AspNetCore2(ITestOutputHelper outputHelper)
             : base("AspNetCore2", outputHelper, "/shutdown")
         {
-        }
-
-        // NOTE: by integrating the latest version of the WAF, blocking was disabled, as it does not support blocking yet
-        [Theory]
-        [InlineData(true, true, HttpStatusCode.OK)]
-        [InlineData(true, false, HttpStatusCode.OK)]
-        [InlineData(false, true, HttpStatusCode.OK)]
-        [InlineData(false, false, HttpStatusCode.OK)]
-        [InlineData(true, false, HttpStatusCode.OK, "/Health/?test&[$slice]")]
-        [Trait("RunOnWindows", "True")]
-        [Trait("Category", "ArmUnsupported")]
-        public async Task TestSecurity(bool enableSecurity, bool enableBlocking, HttpStatusCode expectedStatusCode, string url = DefaultAttackUrl)
-        {
-            var agent = await RunOnSelfHosted(enableSecurity, enableBlocking);
-            await TestBlockedRequestAsync(agent, enableSecurity, expectedStatusCode, expectedSpans: 5, url: url, assertOnSpans: new Action<TestHelpers.MockTracerAgent.Span>[]
-            {
-                 s => Assert.Equal("aspnet_core.request", s.Name),
-                 s  => Assert.Equal("Samples.AspNetCore2", s.Service),
-                 s  =>  Assert.Equal("web", s.Type),
-                 s =>
-                 {
-                    var securityTags = new Dictionary<string, string>
-                    {
-                        { "network.client.ip", "127.0.0.1" },
-                        { "http.response.headers.content-type", "text/plain; charset=utf-8" },
-                    };
-                    foreach (var kvp in securityTags)
-                    {
-                        Assert.True(s.Tags.TryGetValue(kvp.Key, out var tagValue), $"The tag {kvp.Key} was not found");
-                        Assert.Equal(kvp.Value, tagValue);
-                    }
-                 },
-            });
         }
     }
 }

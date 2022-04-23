@@ -5,7 +5,7 @@ cmake_policy(SET CMP0015 NEW)
 # Project definition
 # ******************************************************
 
-project("Datadog.Trace.ClrProfiler.Native" VERSION 2.0.1)
+project("Datadog.Trace.ClrProfiler.Native" VERSION 2.8.0)
 
 # ******************************************************
 # Environment detection
@@ -94,19 +94,14 @@ SET(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${OUTPUT_BIN_DIR})
 SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_BIN_DIR})
 SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${OUTPUT_BIN_DIR})
 
+
+SET(DOTNET_TRACER_REPO_ROOT_PATH ${CMAKE_SOURCE_DIR}/../../../)
+
 # ******************************************************
 # Dependencies
 # ******************************************************
 
 # Prepare dependencies
-if (NOT EXISTS ${OUTPUT_DEPS_DIR}/json)
-    add_custom_command(
-        OUTPUT ${OUTPUT_DEPS_DIR}/json
-        COMMAND git clone --quiet --depth 1 --branch v3.3.0 https://github.com/nlohmann/json.git
-        WORKING_DIRECTORY ${OUTPUT_DEPS_DIR}
-    )
-endif()
-
 if (NOT EXISTS ${OUTPUT_DEPS_DIR}/re2)
     add_custom_command(
         OUTPUT ${OUTPUT_DEPS_DIR}/re2
@@ -131,26 +126,26 @@ if (ISMACOS)
     add_custom_command(
             OUTPUT ${OUTPUT_TMP_DIR}/Datadog.Trace.ClrProfiler.Managed.Loader.dll.o
             COMMAND touch stub.c && gcc -o stub.o -c stub.c && cp ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.dll Datadog.Trace.ClrProfiler.Managed.Loader.dll && ld -r -o Datadog.Trace.ClrProfiler.Managed.Loader.dll.o -sectcreate binary dll Datadog.Trace.ClrProfiler.Managed.Loader.dll stub.o
-            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.dll ${OUTPUT_DEPS_DIR}/json ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
+            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.dll ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
             WORKING_DIRECTORY ${OUTPUT_TMP_DIR}
     )
     add_custom_command(
             OUTPUT ${OUTPUT_TMP_DIR}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb.o
             COMMAND touch stub.c && gcc -o stub.o -c stub.c && cp "${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb" Datadog.Trace.ClrProfiler.Managed.Loader.pdb && ld -r -o Datadog.Trace.ClrProfiler.Managed.Loader.pdb.o -sectcreate binary pdb Datadog.Trace.ClrProfiler.Managed.Loader.pdb stub.o
-            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb ${OUTPUT_DEPS_DIR}/json ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
+            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
             WORKING_DIRECTORY ${OUTPUT_TMP_DIR}
     )
 elseif(ISLINUX)
     add_custom_command(
             OUTPUT ${OUTPUT_TMP_DIR}/Datadog.Trace.ClrProfiler.Managed.Loader.dll.o
             COMMAND cp "${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.dll" Datadog.Trace.ClrProfiler.Managed.Loader.dll && ld -r -b binary -o Datadog.Trace.ClrProfiler.Managed.Loader.dll.o Datadog.Trace.ClrProfiler.Managed.Loader.dll
-            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.dll ${OUTPUT_DEPS_DIR}/json ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
+            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.dll ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
             WORKING_DIRECTORY ${OUTPUT_TMP_DIR}
     )
     add_custom_command(
             OUTPUT ${OUTPUT_TMP_DIR}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb.o
             COMMAND cp "${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb" Datadog.Trace.ClrProfiler.Managed.Loader.pdb && ld -r -b binary -o Datadog.Trace.ClrProfiler.Managed.Loader.pdb.o Datadog.Trace.ClrProfiler.Managed.Loader.pdb
-            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb ${OUTPUT_DEPS_DIR}/json ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
+            DEPENDS ${MANAGED_LOADER_DIRECTORY}/Datadog.Trace.ClrProfiler.Managed.Loader.pdb ${OUTPUT_DEPS_DIR}/re2 ${OUTPUT_DEPS_DIR}/fmt
             WORKING_DIRECTORY ${OUTPUT_TMP_DIR}
     )
 endif()
@@ -223,12 +218,21 @@ add_library("Datadog.Trace.ClrProfiler.Native.static" STATIC
         il_rewriter.cpp
         integration.cpp
         metadata_builder.cpp
-        miniutf.cpp
-        string.cpp
-        util.cpp
+        ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-src/miniutf.cpp
+        ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-src/string.cpp
+        ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-src/util.cpp
         calltarget_tokens.cpp
         rejit_handler.cpp
-        lib/coreclr/src/pal/prebuilt/idl/corprof_i.cpp
+        debugger_method_rewriter.cpp
+        debugger_probes_instrumentation_requester.cpp
+        debugger_rejit_handler_module_method.cpp
+        debugger_rejit_preprocessor.cpp
+        rejit_preprocessor.cpp
+        rejit_work_offloader.cpp
+        environment_variables_util.cpp
+        method_rewriter.cpp
+        tracer_tokens.cpp
+        ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-lib/coreclr/src/pal/prebuilt/idl/corprof_i.cpp
         ${GENERATED_OBJ_FILES}
 )
 
@@ -236,14 +240,13 @@ set_target_properties("Datadog.Trace.ClrProfiler.Native.static" PROPERTIES PREFI
 
 # Define directories includes
 target_include_directories("Datadog.Trace.ClrProfiler.Native.static"
-        PUBLIC lib/coreclr/src/pal/inc/rt
-        PUBLIC lib/coreclr/src/pal/prebuilt/inc
-        PUBLIC lib/coreclr/src/pal/inc
-        PUBLIC lib/coreclr/src/inc
-        PUBLIC lib/spdlog/include
+        PUBLIC ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-lib/coreclr/src/pal/inc/rt
+        PUBLIC ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-lib/coreclr/src/pal/prebuilt/inc
+        PUBLIC ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-lib/coreclr/src/pal/inc
+        PUBLIC ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-lib/coreclr/src/inc
+        PUBLIC ${DOTNET_TRACER_REPO_ROOT_PATH}/shared/src/native-lib/spdlog/include
         PUBLIC ${OUTPUT_DEPS_DIR}/fmt/include
         PUBLIC ${OUTPUT_DEPS_DIR}/re2
-        PUBLIC ${OUTPUT_DEPS_DIR}/json/include
 )
 
 # Define linker libraries

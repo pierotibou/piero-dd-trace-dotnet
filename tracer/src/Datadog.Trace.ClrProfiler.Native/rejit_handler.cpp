@@ -8,46 +8,15 @@ namespace trace
 {
 
 //
-// RejitItem
-//
-
-RejitItem::RejitItem() : m_type(-1), m_modulesId(nullptr), m_methodDefs(nullptr), m_integrationDefinitions(nullptr), m_promise(nullptr)
-{
-}
-
-RejitItem::RejitItem(std::unique_ptr<std::vector<ModuleID>>&& modulesId,
-                     std::unique_ptr<std::vector<mdMethodDef>>&& methodDefs) :
-    m_type(1), m_integrationDefinitions(nullptr), m_promise(nullptr)
-{
-    m_modulesId = std::move(modulesId);
-    m_methodDefs = std::move(methodDefs);
-}
-
-RejitItem::RejitItem(std::unique_ptr<std::vector<ModuleID>>&& modulesId,
-                     std::unique_ptr<std::vector<IntegrationDefinition>>&& integrationDefinitions, std::promise<ULONG>* promise) :
-    m_type(2), m_methodDefs(nullptr)
-{
-    m_modulesId = std::move(modulesId);
-    m_integrationDefinitions = std::move(integrationDefinitions);
-    m_promise = promise;
-}
-
-std::unique_ptr<RejitItem> RejitItem::CreateEndRejitThread()
-{
-    return std::make_unique<RejitItem>();
-}
-
-//
 // RejitHandlerModuleMethod
 //
 
-RejitHandlerModuleMethod::RejitHandlerModuleMethod(mdMethodDef methodDef, RejitHandlerModule* module)
+RejitHandlerModuleMethod::RejitHandlerModuleMethod(mdMethodDef methodDef, RejitHandlerModule* module, const FunctionInfo& functionInfo)
 {
     m_methodDef = methodDef;
+    SetFunctionInfo(functionInfo);
     m_pFunctionControl = nullptr;
     m_module = module;
-    m_functionInfo = nullptr;
-    m_integrationDefinition = nullptr;
 }
 
 mdMethodDef RejitHandlerModuleMethod::GetMethodDef()
@@ -80,34 +49,17 @@ void RejitHandlerModuleMethod::SetFunctionInfo(const FunctionInfo& functionInfo)
     m_functionInfo = std::make_unique<FunctionInfo>(functionInfo);
 }
 
-IntegrationDefinition* RejitHandlerModuleMethod::GetIntegrationDefinition()
+bool RejitHandlerModuleMethod::RequestRejitForInlinersInModule(ModuleID moduleId)
 {
-    return m_integrationDefinition.get();
-}
-
-void RejitHandlerModuleMethod::SetIntegrationDefinition(const IntegrationDefinition& integrationDefinition)
-{
-    m_integrationDefinition = std::make_unique<IntegrationDefinition>(integrationDefinition);
-}
-
-void RejitHandlerModuleMethod::RequestRejitForInlinersInModule(ModuleID moduleId)
-{
-    Logger::Debug("RejitHandlerModuleMethod::RequestRejitForInlinersInModule: ", moduleId);
-    std::lock_guard<std::mutex> guard(m_ngenModulesLock);
-
-    // We check first if we already processed this module to skip it.
-    auto find_res = m_ngenModules.find(moduleId);
-    if (find_res != m_ngenModules.end())
-    {
-        return;
-    }
-
     // Enumerate all inliners and request rejit
     ModuleID currentModuleId = m_module->GetModuleId();
     mdMethodDef currentMethodDef = m_methodDef;
+
+    Logger::Debug("RejitHandlerModuleMethod::RequestRejitForInlinersInModule for ",
+                  "[ModuleInliner=", moduleId , ", ModuleId=", currentModuleId, ", MethodDef=", currentMethodDef, "]");
+
     RejitHandler* handler = m_module->GetHandler();
     ICorProfilerInfo7* pInfo = handler->GetCorProfilerInfo();
-
     if (pInfo != nullptr)
     {
         // Now we enumerate all methods that inline the current methodDef
@@ -141,13 +93,10 @@ void RejitHandlerModuleMethod::RequestRejitForInlinersInModule(ModuleID moduleId
                              ",MethodDef=", currentMethodDef, "]");
             }
 
-            if (!incompleteData)
-            {
-                m_ngenModules[moduleId] = true;
-            }
-            else
+            if (incompleteData)
             {
                 Logger::Warn("NGen inliner data for module '", moduleId, "' is incomplete.");
+                return false;
             }
         }
         else if (hr == E_INVALIDARG)
@@ -159,6 +108,8 @@ void RejitHandlerModuleMethod::RequestRejitForInlinersInModule(ModuleID moduleId
         {
             Logger::Info("NGEN:: Error Incomplete data in [ModuleId=", currentModuleId, ",MethodDef=", currentMethodDef,
                          ", HR=", hexValue.str(), "]");
+
+            return false;
         }
         else if (hr == CORPROF_E_UNSUPPORTED_CALL_SEQUENCE)
         {
@@ -170,7 +121,33 @@ void RejitHandlerModuleMethod::RequestRejitForInlinersInModule(ModuleID moduleId
             Logger::Info("NGEN:: Error in [ModuleId=", currentModuleId, ",MethodDef=", currentMethodDef,
                          ", HR=", hexValue.str(), "]");
         }
+
+        return true;
     }
+
+    return false;
+}
+
+//
+// TracerRejitHandlerModuleMethod
+//
+
+TracerRejitHandlerModuleMethod::TracerRejitHandlerModuleMethod(
+    mdMethodDef methodDef, RejitHandlerModule* module, const FunctionInfo& functionInfo,
+    const IntegrationDefinition& integrationDefinition) :
+    RejitHandlerModuleMethod(methodDef, module, functionInfo),
+    m_integrationDefinition(std::make_unique<IntegrationDefinition>(integrationDefinition))
+{
+}
+
+IntegrationDefinition* TracerRejitHandlerModuleMethod::GetIntegrationDefinition()
+{
+    return m_integrationDefinition.get();
+}
+
+MethodRewriter* TracerRejitHandlerModuleMethod::GetMethodRewriter()
+{
+    return TracerMethodRewriter::Instance();
 }
 
 //
@@ -204,19 +181,33 @@ void RejitHandlerModule::SetModuleMetadata(ModuleMetadata* metadata)
     m_metadata = std::unique_ptr<ModuleMetadata>(metadata);
 }
 
-RejitHandlerModuleMethod* RejitHandlerModule::GetOrAddMethod(mdMethodDef methodDef)
+bool RejitHandlerModule::CreateMethodIfNotExists(const mdMethodDef methodDef,
+                                                 RejitHandlerModuleMethodCreatorFunc creator)
 {
     std::lock_guard<std::mutex> guard(m_methods_lock);
 
     auto find_res = m_methods.find(methodDef);
     if (find_res != m_methods.end())
     {
-        return find_res->second.get();
+        return false; // already exist and was not created
     }
 
-    RejitHandlerModuleMethod* methodHandler = new RejitHandlerModuleMethod(methodDef, this);
-    m_methods[methodDef] = std::unique_ptr<RejitHandlerModuleMethod>(methodHandler);
-    return methodHandler;
+    m_methods[methodDef] = creator(methodDef, this);
+    return true;
+}
+
+bool RejitHandlerModule::TryGetMethod(mdMethodDef methodDef, RejitHandlerModuleMethod** methodHandler)
+{
+    std::lock_guard<std::mutex> guard(m_methods_lock);
+
+    auto find_res = m_methods.find(methodDef);
+    if (find_res != m_methods.end())
+    {
+        *methodHandler = find_res->second.get();
+        return true;
+    }
+
+    return false;
 }
 
 bool RejitHandlerModule::ContainsMethod(mdMethodDef methodDef)
@@ -227,10 +218,31 @@ bool RejitHandlerModule::ContainsMethod(mdMethodDef methodDef)
 
 void RejitHandlerModule::RequestRejitForInlinersInModule(ModuleID moduleId)
 {
-    std::lock_guard<std::mutex> guard(m_methods_lock);
+    std::lock_guard<std::mutex> moduleGuard(m_ngenProcessedInlinerModulesLock);
+
+    // We check first if we already processed this module to skip it.
+    auto find_res = m_ngenProcessedInlinerModules.find(moduleId);
+    if (find_res != m_ngenProcessedInlinerModules.end())
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> methodsGuard(m_methods_lock);
+    bool success = true;
     for (const auto& method : m_methods)
     {
-        method.second.get()->RequestRejitForInlinersInModule(moduleId);
+        success = success && method.second.get()->RequestRejitForInlinersInModule(moduleId);
+        // If we fail to process a method, we stop the processing and try again in another call.
+        if (!success)
+        {
+            break;
+        }
+    }
+
+    if (success)
+    {
+        // We mark module as processed.
+        m_ngenProcessedInlinerModules[moduleId] = true;
     }
 }
 
@@ -238,91 +250,10 @@ void RejitHandlerModule::RequestRejitForInlinersInModule(ModuleID moduleId)
 // RejitHandler
 //
 
-void RejitHandler::EnqueueThreadLoop(RejitHandler* handler)
-{
-    auto queue = handler->m_rejit_queue.get();
-    auto profilerInfo = handler->m_profilerInfo;
-    auto profilerInfo10 = handler->m_profilerInfo10;
-
-    Logger::Info("Initializing ReJIT request thread.");
-    HRESULT hr = profilerInfo->InitializeCurrentThread();
-    if (FAILED(hr))
-    {
-        Logger::Warn("Call to InitializeCurrentThread fail.");
-    }
-
-    while (true)
-    {
-        const auto item = queue->pop();
-
-        if (item->m_type == -1)
-        {
-            // *************************************
-            // Exit ReJIT thread
-            // *************************************
-
-            break;
-        }
-        else if (item->m_type == 1)
-        {
-            // *************************************
-            // Request ReJIT
-            // *************************************
-
-            if (item->m_modulesId->size() > 0 && item->m_methodDefs->size() > 0)
-            {
-                // Request ReJIT
-                handler->RequestRejit(*item->m_modulesId.get(), *item->m_methodDefs.get());
-            }
-        }
-        else if (item->m_type == 2)
-        {
-            // *************************************
-            // Checks if there are integrations for the modules and enqueue a ReJIT request
-            // *************************************
-
-            if (item->m_modulesId->size() > 0 && item->m_integrationDefinitions->size() > 0)
-            {
-                auto pModuleId = item->m_modulesId.get();
-                auto pIntegrations = item->m_integrationDefinitions.get();
-
-                // Process modules for rejit
-                const auto rejitCount = handler->ProcessModuleForRejit(*pModuleId, *pIntegrations, true);
-
-                // Resolve promise
-                if (item->m_promise != nullptr)
-                {
-                    item->m_promise->set_value(rejitCount);
-                }
-            }
-        }
-    }
-    Logger::Info("Exiting ReJIT request thread.");
-}
-
-void RejitHandler::RequestRejitForInlinersInModule(ModuleID moduleId)
-{
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
-    {
-        return;
-    }
-
-    std::lock_guard<std::mutex> guard(m_modules_lock);
-    if (m_profilerInfo != nullptr)
-    {
-        for (const auto& mod : m_modules)
-        {
-            mod.second->RequestRejitForInlinersInModule(moduleId);
-        }
-    }
-}
-
 void RejitHandler::RequestRejit(std::vector<ModuleID>& modulesVector,
                                 std::vector<mdMethodDef>& modulesMethodDef)
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (IsShutdownRequested())
     {
         return;
     }
@@ -364,36 +295,26 @@ void RejitHandler::RequestRejit(std::vector<ModuleID>& modulesVector,
         {
             Logger::Warn("Error requesting ReJIT for ", modulesVector.size(), " methods");
         }
-
-        // Request for NGen Inliners
-        RequestRejitForNGenInliners();
     }
 }
 
-RejitHandler::RejitHandler(ICorProfilerInfo7* pInfo,
-                           std::function<HRESULT(RejitHandlerModule*, RejitHandlerModuleMethod*)> rewriteCallback)
+RejitHandler::RejitHandler(ICorProfilerInfo7* pInfo, std::shared_ptr<RejitWorkOffloader> work_offloader)
 {
     m_profilerInfo = pInfo;
     m_profilerInfo10 = nullptr;
-    m_rewriteCallback = rewriteCallback;
-    m_rejit_queue = std::make_unique<UniqueBlockingQueue<RejitItem>>();
-    m_rejit_queue_thread = std::make_unique<std::thread>(EnqueueThreadLoop, this);
+    m_work_offloader = work_offloader;
 }
 
-RejitHandler::RejitHandler(ICorProfilerInfo10* pInfo,
-                           std::function<HRESULT(RejitHandlerModule*, RejitHandlerModuleMethod*)> rewriteCallback)
+RejitHandler::RejitHandler(ICorProfilerInfo10* pInfo, std::shared_ptr<RejitWorkOffloader> work_offloader)
 {
     m_profilerInfo = pInfo;
     m_profilerInfo10 = pInfo;
-    m_rewriteCallback = rewriteCallback;
-    m_rejit_queue = std::make_unique<UniqueBlockingQueue<RejitItem>>();
-    m_rejit_queue_thread = std::make_unique<std::thread>(EnqueueThreadLoop, this);
+    m_work_offloader = work_offloader;
 }
 
 RejitHandlerModule* RejitHandler::GetOrAddModule(ModuleID moduleId)
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (IsShutdownRequested())
     {
         return nullptr;
     }
@@ -412,8 +333,7 @@ RejitHandlerModule* RejitHandler::GetOrAddModule(ModuleID moduleId)
 
 bool RejitHandler::HasModuleAndMethod(ModuleID moduleId, mdMethodDef methodDef)
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (IsShutdownRequested())
     {
         return false;
     }
@@ -431,65 +351,85 @@ bool RejitHandler::HasModuleAndMethod(ModuleID moduleId, mdMethodDef methodDef)
 
 void RejitHandler::RemoveModule(ModuleID moduleId)
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (IsShutdownRequested())
     {
         return;
     }
 
-    std::lock_guard<std::mutex> guard(m_modules_lock);
+    // Removes the RejitHandlerModule instance
+    std::lock_guard<std::mutex> modulesGuard(m_modules_lock);
     m_modules.erase(moduleId);
+
+    // Removes the moduleID from the inliners vector
+    std::lock_guard<std::mutex> inlinersGuard(m_ngenInlinersModules_lock);
+    m_ngenInlinersModules.erase(
+            std::remove(m_ngenInlinersModules.begin(), m_ngenInlinersModules.end(), moduleId),
+            m_ngenInlinersModules.end());
 }
 
-void RejitHandler::AddNGenModule(ModuleID moduleId)
+void RejitHandler::AddNGenInlinerModule(ModuleID moduleId)
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (IsShutdownRequested())
     {
+        // If the shutdown was requested, we return.
         return;
     }
 
-    std::lock_guard<std::mutex> guard(m_ngenModules_lock);
-    m_ngenModules.push_back(moduleId);
-    RequestRejitForInlinersInModule(moduleId);
-}
-
-void RejitHandler::EnqueueProcessModule(const std::vector<ModuleID>& modulesVector,
-                                        const std::vector<IntegrationDefinition>& integrationDefinitions,
-                                        std::promise<ULONG>* promise)
-{
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (m_profilerInfo == nullptr)
     {
-        if (promise != nullptr)
+        // If there's no profiler info interface, we return.
+        return;
+    }
+
+    // Process the inliner module list ( to catch any incomplete data module )
+    // and also check if the module is already in the inliners list
+    std::lock_guard<std::mutex> modulesGuard(m_modules_lock);
+    std::lock_guard<std::mutex> inlinersGuard(m_ngenInlinersModules_lock);
+
+    bool alreadyAdded = false;
+    for (const auto& moduleInliner : m_ngenInlinersModules)
+    {
+        if (moduleInliner == moduleId)
         {
-            promise->set_value(0);
+            alreadyAdded = true;
         }
 
-        return;
+        for (const auto& mod : m_modules)
+        {
+            mod.second->RequestRejitForInlinersInModule(moduleInliner);
+        }
     }
 
-    Logger::Debug("RejitHandler::EnqueueProcessModule");
+    // If the module is not in the inliners list we added and request rejit for it.
+    if (!alreadyAdded)
+    {
+        // Add the new module inliner
+        m_ngenInlinersModules.push_back(moduleId);
 
-    // Enqueue
-    m_rejit_queue->push(std::make_unique<RejitItem>(std::make_unique<std::vector<ModuleID>>(modulesVector),
-                                                    std::make_unique<std::vector<IntegrationDefinition>>(integrationDefinitions),
-                                                    promise));
+        for (const auto& mod : m_modules)
+        {
+            mod.second->RequestRejitForInlinersInModule(moduleId);
+        }
+    }
 }
 
 void RejitHandler::EnqueueForRejit(std::vector<ModuleID>& modulesVector, std::vector<mdMethodDef>& modulesMethodDef)
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (IsShutdownRequested() || modulesVector.size() == 0 || modulesMethodDef.size() == 0)
     {
         return;
     }
 
     Logger::Debug("RejitHandler::EnqueueForRejit");
 
+    std::function<void()> action = [=, modules = std::move(modulesVector),
+                                    methods = std::move(modulesMethodDef)]() mutable {
+        // Request ReJIT
+        RequestRejit(modules, methods);
+    };
+
     // Enqueue
-    m_rejit_queue->push(std::make_unique<RejitItem>(std::make_unique<std::vector<ModuleID>>(modulesVector),
-                                                    std::make_unique<std::vector<mdMethodDef>>(modulesMethodDef)));
+    m_work_offloader->Enqueue(std::make_unique<RejitWorkItem>(std::move(action)));
 }
 
 void RejitHandler::Shutdown()
@@ -497,14 +437,11 @@ void RejitHandler::Shutdown()
     Logger::Debug("RejitHandler::Shutdown");
 
     // Wait for exiting the thread
-    m_rejit_queue->push(RejitItem::CreateEndRejitThread());
-    if (m_rejit_queue_thread->joinable())
-    {
-        m_rejit_queue_thread->join();
-    }
+    m_work_offloader->Enqueue(RejitWorkItem::CreateTerminatingWorkItem());
+    m_work_offloader->WaitForTermination();
 
     std::lock_guard<std::mutex> moduleGuard(m_modules_lock);
-    std::lock_guard<std::mutex> ngenModuleGuard(m_ngenModules_lock);
+    std::lock_guard<std::mutex> ngenModuleGuard(m_ngenInlinersModules_lock);
 
     WriteLock w_lock(m_shutdown_lock);
     m_shutdown.store(true);
@@ -512,14 +449,18 @@ void RejitHandler::Shutdown()
     m_modules.clear();
     m_profilerInfo = nullptr;
     m_profilerInfo10 = nullptr;
-    m_rewriteCallback = nullptr;
+}
+
+bool RejitHandler::IsShutdownRequested()
+{
+    ReadLock r_lock(m_shutdown_lock);
+    return m_shutdown;
 }
 
 HRESULT RejitHandler::NotifyReJITParameters(ModuleID moduleId, mdMethodDef methodId,
                                             ICorProfilerFunctionControl* pFunctionControl)
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
+    if (IsShutdownRequested())
     {
         return S_FALSE;
     }
@@ -530,7 +471,12 @@ HRESULT RejitHandler::NotifyReJITParameters(ModuleID moduleId, mdMethodDef metho
         return S_FALSE;
     }
 
-    auto methodHandler = moduleHandler->GetOrAddMethod(methodId);
+    RejitHandlerModuleMethod* methodHandler = nullptr;
+    if (!moduleHandler->TryGetMethod(methodId, &methodHandler))
+    {
+        return S_FALSE;
+    }
+
     methodHandler->SetFunctionControl(pFunctionControl);
 
     if (methodHandler->GetMethodDef() == mdMethodDefNil)
@@ -558,14 +504,6 @@ HRESULT RejitHandler::NotifyReJITParameters(ModuleID moduleId, mdMethodDef metho
         return S_FALSE;
     }
 
-    if (methodHandler->GetIntegrationDefinition() == nullptr)
-    {
-        Logger::Warn("NotifyReJITCompilationStarted: IntegrationDefinition is missing for "
-                     "MethodDef: ",
-                     methodId);
-        return S_FALSE;
-    }
-
     if (moduleHandler->GetModuleId() == 0)
     {
         Logger::Warn("NotifyReJITCompilationStarted: ModuleID is missing for "
@@ -582,7 +520,17 @@ HRESULT RejitHandler::NotifyReJITParameters(ModuleID moduleId, mdMethodDef metho
         return S_FALSE;
     }
 
-    return m_rewriteCallback(moduleHandler, methodHandler);
+    auto rewriter = methodHandler->GetMethodRewriter();
+
+    if (rewriter == nullptr)
+    {
+        Logger::Error("NotifyReJITCompilationStarted: The rewriter is missing for "
+                      "MethodDef: ",
+                      methodId, ", methodHandler type name = ", typeid(methodHandler).name());
+        return S_FALSE;
+    }
+
+    return rewriter->Rewrite(moduleHandler, methodHandler);
 }
 
 HRESULT RejitHandler::NotifyReJITCompilationStarted(FunctionID functionId, ReJITID rejitId)
@@ -600,387 +548,29 @@ void RejitHandler::SetCorAssemblyProfiler(AssemblyProperty* pCorAssemblyProfiler
     m_pCorAssemblyProperty = pCorAssemblyProfiler;
 }
 
-void RejitHandler::RequestRejitForNGenInliners()
+AssemblyProperty* RejitHandler::GetCorAssemblyProperty()
 {
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
-    {
-        return;
-    }
-
-    std::lock_guard<std::mutex> guard(m_ngenModules_lock);
-    if (m_profilerInfo != nullptr)
-    {
-        for (const auto& mod : m_ngenModules)
-        {
-            RequestRejitForInlinersInModule(mod);
-        }
-    }
-}
-
-void RejitHandler::ProcessTypeDefForRejit(const IntegrationDefinition& integration,
-                                          ComPtr<IMetaDataImport2>& metadataImport,
-                                          ComPtr<IMetaDataEmit2>& metadataEmit,
-                                          ComPtr<IMetaDataAssemblyImport>& assemblyImport,
-                                          ComPtr<IMetaDataAssemblyEmit>& assemblyEmit, const ModuleInfo& moduleInfo,
-                                          const mdTypeDef typeDef, std::vector<ModuleID>& vtModules,
-                                          std::vector<mdMethodDef>& vtMethodDefs)
-{
-    Logger::Debug("  Looking for '", integration.target_method.type.name, ".", integration.target_method.method_name,
-                  "(", (integration.target_method.signature_types.size() - 1), " params)' method implementation.");
-
-    // Now we enumerate all methods with the same target method name. (All overloads of the method)
-    auto enumMethods = Enumerator<mdMethodDef>(
-        [&metadataImport, &integration, typeDef](HCORENUM* ptr, mdMethodDef arr[], ULONG max, ULONG* cnt) -> HRESULT {
-            return metadataImport->EnumMethodsWithName(ptr, typeDef, integration.target_method.method_name.c_str(), arr,
-                                                       max, cnt);
-        },
-        [&metadataImport](HCORENUM ptr) -> void { metadataImport->CloseEnum(ptr); });
-
-    auto enumIterator = enumMethods.begin();
-    for (; enumIterator != enumMethods.end(); enumIterator = ++enumIterator)
-    {
-        auto methodDef = *enumIterator;
-
-        // Extract the function info from the mdMethodDef
-        const auto caller = GetFunctionInfo(metadataImport, methodDef);
-        if (!caller.IsValid())
-        {
-            Logger::Warn("    * The caller for the methoddef: ", TokenStr(&methodDef), " is not valid!");
-            continue;
-        }
-
-        // We create a new function info into the heap from the caller functionInfo in the stack, to
-        // be used later in the ReJIT process
-        auto functionInfo = FunctionInfo(caller);
-        auto hr = functionInfo.method_signature.TryParse();
-        if (FAILED(hr))
-        {
-            Logger::Warn("    * The method signature: ", functionInfo.method_signature.str(), " cannot be parsed.");
-            continue;
-        }
-
-        // Compare if the current mdMethodDef contains the same number of arguments as the
-        // instrumentation target
-        const auto numOfArgs = functionInfo.method_signature.NumberOfArguments();
-        if (numOfArgs != integration.target_method.signature_types.size() - 1)
-        {
-            Logger::Debug("    * The caller for the methoddef: ", caller.name,
-                          " doesn't have the right number of arguments (", numOfArgs, " arguments).");
-            continue;
-        }
-
-        // Compare each mdMethodDef argument type to the instrumentation target
-        bool argumentsMismatch = false;
-        const auto methodArguments = functionInfo.method_signature.GetMethodArguments();
-
-        Logger::Debug("    * Comparing signature for method: ", caller.type.name, ".",
-                      caller.name);
-        for (unsigned int i = 0; i < numOfArgs; i++)
-        {
-            const auto argumentTypeName = methodArguments[i].GetTypeTokName(metadataImport);
-            const auto integrationArgumentTypeName = integration.target_method.signature_types[i + 1];
-            Logger::Debug("        -> ", argumentTypeName, " = ", integrationArgumentTypeName);
-            if (argumentTypeName != integrationArgumentTypeName && integrationArgumentTypeName != WStr("_"))
-            {
-                argumentsMismatch = true;
-                break;
-            }
-        }
-        if (argumentsMismatch)
-        {
-            Logger::Debug("    * The caller for the methoddef: ", integration.target_method.method_name,
-                          " doesn't have the right type of arguments.");
-            continue;
-        }
-
-        // As we are in the right method, we gather all information we need and stored it in to the
-        // ReJIT handler.
-        auto moduleHandler = GetOrAddModule(moduleInfo.id);
-        if (moduleHandler == nullptr)
-        {
-            Logger::Warn("Module handler is null, this only happens if the RejitHandler has been shutdown.");
-            break;
-        }
-        if (moduleHandler->GetModuleMetadata() == nullptr)
-        {
-            Logger::Debug("Creating ModuleMetadata...");
-
-            const auto moduleMetadata = new ModuleMetadata(metadataImport, metadataEmit, assemblyImport, assemblyEmit,
-                                                           moduleInfo.assembly.name, moduleInfo.assembly.app_domain_id,
-                                                           m_pCorAssemblyProperty, enable_by_ref_instrumentation);
-
-            Logger::Info("ReJIT handler stored metadata for ", moduleInfo.id, " ", moduleInfo.assembly.name,
-                         " AppDomain ", moduleInfo.assembly.app_domain_id, " ", moduleInfo.assembly.app_domain_name);
-
-            moduleHandler->SetModuleMetadata(moduleMetadata);
-        }
-
-        auto methodHandler = moduleHandler->GetOrAddMethod(methodDef);
-        if (methodHandler->GetFunctionInfo() == nullptr)
-        {
-            methodHandler->SetFunctionInfo(functionInfo);
-        }
-        if (methodHandler->GetIntegrationDefinition() == nullptr)
-        {
-            methodHandler->SetIntegrationDefinition(integration);
-        }
-
-        // Store module_id and methodDef to request the ReJIT after analyzing all integrations.
-        vtModules.push_back(moduleInfo.id);
-        vtMethodDefs.push_back(methodDef);
-
-        Logger::Debug("    * Enqueue for ReJIT [ModuleId=", moduleInfo.id, ", MethodDef=", TokenStr(&methodDef),
-                      ", AppDomainId=", moduleHandler->GetModuleMetadata()->app_domain_id,
-                      ", Assembly=", moduleHandler->GetModuleMetadata()->assemblyName, ", Type=", caller.type.name,
-                      ", Method=", caller.name, "(", numOfArgs, " params), Signature=", caller.signature.str(), "]");
-    }
-}
-
-ULONG RejitHandler::ProcessModuleForRejit(const std::vector<ModuleID>& modules,
-                                          const std::vector<IntegrationDefinition>& integrationDefinitions,
-                                          bool enqueueInSameThread)
-{
-    ReadLock r_lock(m_shutdown_lock);
-    if (m_shutdown)
-    {
-        return 0;
-    }
-
-    std::vector<ModuleID> vtModules;
-    std::vector<mdMethodDef> vtMethodDefs;
-
-    // Preallocate with size => 15 due this is the current max of method interceptions in a single module
-    // (see InstrumentationDefinitions.Generated.cs)
-    vtModules.reserve(15);
-    vtMethodDefs.reserve(15);
-
-    for (const auto& module : modules)
-    {
-        auto _ = trace::Stats::Instance()->CallTargetRequestRejitMeasure();
-        const ModuleInfo& moduleInfo = GetModuleInfo(m_profilerInfo, module);
-        Logger::Debug("Requesting Rejit for Module: ", moduleInfo.assembly.name);
-
-        ComPtr<IUnknown> metadataInterfaces;
-        ComPtr<IMetaDataImport2> metadataImport;
-        ComPtr<IMetaDataEmit2> metadataEmit;
-        ComPtr<IMetaDataAssemblyImport> assemblyImport;
-        ComPtr<IMetaDataAssemblyEmit> assemblyEmit;
-        std::unique_ptr<AssemblyMetadata> assemblyMetadata = nullptr;
-
-        for (const IntegrationDefinition& integration : integrationDefinitions)
-        {
-            if (integration.is_derived)
-            {
-                // Abstract methods handling.
-                if (assemblyMetadata == nullptr)
-                {
-                    Logger::Debug("  Loading Assembly Metadata...");
-                    auto hr = m_profilerInfo->GetModuleMetaData(moduleInfo.id, ofRead | ofWrite, IID_IMetaDataImport2,
-                                                                metadataInterfaces.GetAddressOf());
-                    if (FAILED(hr))
-                    {
-                        Logger::Warn("CallTarget_RequestRejitForModule failed to get metadata interface for ",
-                                     moduleInfo.id, " ", moduleInfo.assembly.name);
-                        break;
-                    }
-
-                    metadataImport = metadataInterfaces.As<IMetaDataImport2>(IID_IMetaDataImport);
-                    metadataEmit = metadataInterfaces.As<IMetaDataEmit2>(IID_IMetaDataEmit);
-                    assemblyImport = metadataInterfaces.As<IMetaDataAssemblyImport>(IID_IMetaDataAssemblyImport);
-                    assemblyEmit = metadataInterfaces.As<IMetaDataAssemblyEmit>(IID_IMetaDataAssemblyEmit);
-                    assemblyMetadata = std::make_unique<AssemblyMetadata>(GetAssemblyImportMetadata(assemblyImport));
-                    Logger::Debug("  Assembly Metadata loaded for: ", assemblyMetadata->name, "(",
-                                  assemblyMetadata->version.str(), ").");
-                }
-
-                // If the integration is in a different assembly than the target method
-                if (assemblyMetadata->name != integration.target_method.type.assembly.name)
-                {
-                    // Check if the current module contains a reference to the assembly of the integration
-                    auto assemblyRefEnum = EnumAssemblyRefs(assemblyImport);
-                    auto assemblyRefIterator = assemblyRefEnum.begin();
-                    bool assemblyRefFound = false;
-                    for (; assemblyRefIterator != assemblyRefEnum.end(); assemblyRefIterator = ++assemblyRefIterator)
-                    {
-                        auto assemblyRef = *assemblyRefIterator;
-                        const auto& assemblyRefMetadata = GetReferencedAssemblyMetadata(assemblyImport, assemblyRef);
-
-                        if (assemblyRefMetadata.name == integration.target_method.type.assembly.name &&
-                            integration.target_method.type.min_version <= assemblyRefMetadata.version &&
-                            integration.target_method.type.max_version >= assemblyRefMetadata.version)
-                        {
-                            assemblyRefFound = true;
-                            break;
-                        }
-                    }
-
-                    // If the assembly reference was not found we skip the integration
-                    if (!assemblyRefFound)
-                    {
-                        continue;
-                    }
-                }
-
-                // Enumerate the types of the module in search of types implementing the integration
-                auto typeDefEnum = EnumTypeDefs(metadataImport);
-                auto typeDefIterator = typeDefEnum.begin();
-                for (; typeDefIterator != typeDefEnum.end(); typeDefIterator = ++typeDefIterator)
-                {
-                    auto typeDef = *typeDefIterator;
-                    const auto typeInfo = GetTypeInfo(metadataImport, typeDef);
-                    bool rewriteType = false;
-                    auto ancestorTypeInfo = typeInfo.extend_from.get();
-
-                    // Check if the type has ancestors
-                    int maxDepth = 1;
-                    while (ancestorTypeInfo != nullptr && maxDepth > 0)
-                    {
-                        // Validate the type name we already have
-                        if (ancestorTypeInfo->name == integration.target_method.type.name)
-                        {
-                            // Validate assembly data (scopeToken has the assemblyRef of the ancestor type)
-                            if (ancestorTypeInfo->scopeToken != mdTokenNil)
-                            {
-                                const auto tokenType = TypeFromToken(ancestorTypeInfo->scopeToken);
-
-                                if (tokenType == mdtAssemblyRef)
-                                {
-                                    const auto& ancestorAssemblyMetadata =
-                                        GetReferencedAssemblyMetadata(assemblyImport, ancestorTypeInfo->scopeToken);
-
-                                    // We check the assembly name and version
-                                    if (ancestorAssemblyMetadata.name == integration.target_method.type.assembly.name &&
-                                        integration.target_method.type.min_version <= ancestorAssemblyMetadata.version &&
-                                        integration.target_method.type.max_version >= ancestorAssemblyMetadata.version)
-                                    {
-                                        rewriteType = true;
-                                        break;
-                                    }
-                                }
-                                else
-                                {
-                                    Logger::Warn("Unknown token type (Not supported)");
-                                }
-                            }
-                            else
-                            {
-                                // Check module name and version
-                                if (moduleInfo.assembly.name == integration.target_method.type.assembly.name &&
-                                    integration.target_method.type.min_version <= assemblyMetadata->version &&
-                                    integration.target_method.type.max_version >= assemblyMetadata->version)
-                                {
-                                    rewriteType = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Go up
-                        ancestorTypeInfo = ancestorTypeInfo->extend_from.get();
-                        if (ancestorTypeInfo != nullptr)
-                        {
-                            if (ancestorTypeInfo->name == WStr("System.ValueType") ||
-                                ancestorTypeInfo->name == WStr("System.Object") ||
-                                ancestorTypeInfo->name == WStr("System.Enum"))
-                            {
-                                ancestorTypeInfo = nullptr;
-                            }
-                        }
-
-                        maxDepth--;
-                    }
-
-                    if (rewriteType)
-                    {
-                        //
-                        // Looking for the method to rewrite
-                        //
-                        ProcessTypeDefForRejit(integration, metadataImport, metadataEmit, assemblyImport, assemblyEmit,
-                                               moduleInfo, typeDef, vtModules, vtMethodDefs);
-                    }
-                }
-            }
-            else
-            {
-                // If the integration is not for the current assembly we skip.
-                if (integration.target_method.type.assembly.name != moduleInfo.assembly.name)
-                {
-                    continue;
-                }
-
-                if (assemblyMetadata == nullptr)
-                {
-                    Logger::Debug("  Loading Assembly Metadata...");
-                    auto hr = m_profilerInfo->GetModuleMetaData(moduleInfo.id, ofRead | ofWrite, IID_IMetaDataImport2,
-                                                                metadataInterfaces.GetAddressOf());
-                    if (FAILED(hr))
-                    {
-                        Logger::Warn("CallTarget_RequestRejitForModule failed to get metadata interface for ",
-                                     moduleInfo.id, " ", moduleInfo.assembly.name);
-                        break;
-                    }
-
-                    metadataImport = metadataInterfaces.As<IMetaDataImport2>(IID_IMetaDataImport);
-                    metadataEmit = metadataInterfaces.As<IMetaDataEmit2>(IID_IMetaDataEmit);
-                    assemblyImport = metadataInterfaces.As<IMetaDataAssemblyImport>(IID_IMetaDataAssemblyImport);
-                    assemblyEmit = metadataInterfaces.As<IMetaDataAssemblyEmit>(IID_IMetaDataAssemblyEmit);
-                    assemblyMetadata = std::make_unique<AssemblyMetadata>(GetAssemblyImportMetadata(assemblyImport));
-                    Logger::Debug("  Assembly Metadata loaded for: ", assemblyMetadata->name, "(",
-                                  assemblyMetadata->version.str(), ").");
-                }
-
-                // Check min version
-                if (integration.target_method.type.min_version > assemblyMetadata->version)
-                {
-                    continue;
-                }
-
-                // Check max version
-                if (integration.target_method.type.max_version < assemblyMetadata->version)
-                {
-                    continue;
-                }
-
-                // We are in the right module, so we try to load the mdTypeDef from the integration target type name.
-                mdTypeDef typeDef = mdTypeDefNil;
-                auto foundType = FindTypeDefByName(integration.target_method.type.name, moduleInfo.assembly.name,
-                                                   metadataImport, typeDef);
-                if (!foundType)
-                {
-                    continue;
-                }
-
-                //
-                // Looking for the method to rewrite
-                //
-                ProcessTypeDefForRejit(integration, metadataImport, metadataEmit, assemblyImport, assemblyEmit,
-                                       moduleInfo, typeDef, vtModules, vtMethodDefs);
-            }
-        }
-    }
-
-    const auto rejitCount = (ULONG) vtMethodDefs.size();
-
-    // Request the ReJIT for all integrations found in the module.
-    if (rejitCount > 0)
-    {
-        if (enqueueInSameThread)
-        {
-            RequestRejit(vtModules, vtMethodDefs);
-        }
-        else
-        {
-            EnqueueForRejit(vtModules, vtMethodDefs);
-        }
-    }
-
-    return rejitCount;
+    return m_pCorAssemblyProperty;
 }
 
 void RejitHandler::SetEnableByRefInstrumentation(bool enableByRefInstrumentation)
 {
     enable_by_ref_instrumentation = enableByRefInstrumentation;
+}
+
+void RejitHandler::SetEnableCallTargetStateByRef(bool enableCallTargetStateByRef)
+{
+    enable_calltarget_state_by_ref = enableCallTargetStateByRef;
+}
+
+bool RejitHandler::GetEnableCallTargetStateByRef()
+{
+    return enable_calltarget_state_by_ref;
+}
+
+bool RejitHandler::GetEnableByRefInstrumentation()
+{
+    return enable_by_ref_instrumentation;
 }
 
 } // namespace trace

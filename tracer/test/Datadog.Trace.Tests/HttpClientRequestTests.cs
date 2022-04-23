@@ -3,13 +3,12 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2017 Datadog, Inc.
 // </copyright>
 
-#if NETCOREAPP3_1
+#if NETCOREAPP3_1_OR_GREATER
 using System;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Datadog.Trace.Agent.MessagePack;
 using Datadog.Trace.Agent.Transports;
 using Xunit;
 
@@ -22,12 +21,12 @@ namespace Datadog.Trace.Tests
         {
             var handler = new CustomHandler();
 
-            var factory = new HttpClientRequestFactory(handler);
-            var request = factory.Create(new Uri("http://localhost/"));
+            var factory = new HttpClientRequestFactory(new Uri("http://localhost/"), AgentHttpHeaderNames.DefaultHeaders, handler);
+            var request = factory.Create(factory.GetEndpoint(string.Empty));
 
             request.AddHeader("Hello", "World");
 
-            await request.PostAsync(ArraySegment<byte>.Empty);
+            await request.PostAsync(ArraySegment<byte>.Empty, MimeTypes.MsgPack);
 
             var message = handler.Message;
 
@@ -43,17 +42,17 @@ namespace Datadog.Trace.Tests
         {
             var handler = new CustomHandler();
 
-            var factory = new HttpClientRequestFactory(handler);
-            var request = factory.Create(new Uri("http://localhost/"));
+            var factory = new HttpClientRequestFactory(new Uri("http://localhost/"), AgentHttpHeaderNames.DefaultHeaders, handler);
+            var request = factory.Create(factory.GetEndpoint(string.Empty));
 
-            await request.PostAsync(ArraySegment<byte>.Empty);
+            await request.PostAsync(ArraySegment<byte>.Empty, MimeTypes.MsgPack);
 
             var message = handler.Message;
 
             Assert.IsAssignableFrom<ByteArrayContent>(message.Content);
         }
 
-        private class CustomHandler : DelegatingHandler
+        private class CustomHandler : HttpClientHandler
         {
             public HttpRequestMessage Message { get; private set; }
 

@@ -86,6 +86,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Couchbase
                 var scope = tracer.StartActiveInternal(OperationName, serviceName: serviceName, tags: tags);
                 scope.Span.Type = SpanTypes.Db;
                 scope.Span.ResourceName = tags.OperationCode;
+                tracer.TracerManager.Telemetry.IntegrationGeneratedSpan(IntegrationId);
                 return new CallTargetState(scope);
             }
             catch (Exception ex)
@@ -95,12 +96,12 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Couchbase
             }
         }
 
-        internal static CallTargetReturn<TOperationResult> CommonOnMethodEndSync<TOperationResult>(TOperationResult tResult, Exception exception, CallTargetState state)
+        internal static CallTargetReturn<TOperationResult> CommonOnMethodEndSync<TOperationResult>(TOperationResult tResult, Exception exception, in CallTargetState state)
         {
-            return new CallTargetReturn<TOperationResult>(CommonOnMethodEnd(tResult, exception, state));
+            return new CallTargetReturn<TOperationResult>(CommonOnMethodEnd(tResult, exception, in state));
         }
 
-        internal static TOperationResult CommonOnMethodEnd<TOperationResult>(TOperationResult tResult, Exception exception, CallTargetState state)
+        internal static TOperationResult CommonOnMethodEnd<TOperationResult>(TOperationResult tResult, Exception exception, in CallTargetState state)
         {
             if (state.Scope == null || tResult == null)
             {

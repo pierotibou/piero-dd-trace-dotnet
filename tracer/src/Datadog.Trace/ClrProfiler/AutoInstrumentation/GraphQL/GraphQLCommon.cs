@@ -13,6 +13,9 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
 {
     internal class GraphQLCommon
     {
+        internal const string ExecuteAsyncMethodName = "ExecuteAsync";
+        internal const string ReturnTypeName = "System.Threading.Tasks.Task`1<GraphQL.ExecutionResult>";
+        internal const string ExecutionContextTypeName = "GraphQL.Execution.ExecutionContext";
         internal const string GraphQLAssembly = "GraphQL";
         internal const string GraphQLReactiveAssembly = "GraphQL.SystemReactive";
         internal const string Major2 = "2";
@@ -52,6 +55,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
                 tags.Source = document.OriginalQuery;
 
                 tags.SetAnalyticsSampleRate(IntegrationId, tracer.Settings, enabledWithGlobalSetting: false);
+                tracer.TracerManager.Telemetry.IntegrationGeneratedSpan(IntegrationId);
             }
             catch (Exception ex)
             {
@@ -90,6 +94,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
                 tags.OperationType = operationType;
 
                 tags.SetAnalyticsSampleRate(IntegrationId, tracer.Settings, enabledWithGlobalSetting: false);
+                tracer.TracerManager.Telemetry.IntegrationGeneratedSpan(IntegrationId);
             }
             catch (Exception ex)
             {
@@ -120,7 +125,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
                 return string.Empty;
             }
 
-            var builder = new StringBuilder();
+            var builder = Util.StringBuilderCache.Acquire(Util.StringBuilderCache.MaxBuilderSize);
 
             try
             {
@@ -179,7 +184,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
                 return "errors: []";
             }
 
-            return builder.ToString();
+            return Util.StringBuilderCache.GetStringAndRelease(builder);
         }
     }
 }

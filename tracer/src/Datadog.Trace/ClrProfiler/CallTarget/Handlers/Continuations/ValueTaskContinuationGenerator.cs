@@ -3,15 +3,15 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2017 Datadog, Inc.
 // </copyright>
 
+#if NETCOREAPP3_1_OR_GREATER
 using System;
 using System.Threading.Tasks;
 
 namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers.Continuations
 {
-#if NETCOREAPP3_1 || NET5_0
     internal class ValueTaskContinuationGenerator<TIntegration, TTarget, TReturn> : ContinuationGenerator<TTarget, TReturn>
     {
-        private static readonly Func<TTarget, object, Exception, CallTargetState, object> _continuation;
+        private static readonly ContinuationMethodDelegate _continuation;
         private static readonly bool _preserveContext;
 
         static ValueTaskContinuationGenerator()
@@ -19,12 +19,14 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers.Continuations
             var result = IntegrationMapper.CreateAsyncEndMethodDelegate(typeof(TIntegration), typeof(TTarget), typeof(object));
             if (result.Method != null)
             {
-                _continuation = (Func<TTarget, object, Exception, CallTargetState, object>)result.Method.CreateDelegate(typeof(Func<TTarget, object, Exception, CallTargetState, object>));
+                _continuation = (ContinuationMethodDelegate)result.Method.CreateDelegate(typeof(ContinuationMethodDelegate));
                 _preserveContext = result.PreserveContext;
             }
         }
 
-        public override TReturn SetContinuation(TTarget instance, TReturn returnValue, Exception exception, CallTargetState state)
+        internal delegate object ContinuationMethodDelegate(TTarget target, object returnValue, Exception exception, in CallTargetState state);
+
+        public override TReturn SetContinuation(TTarget instance, TReturn returnValue, Exception exception, in CallTargetState state)
         {
             if (_continuation is null)
             {
@@ -33,7 +35,7 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers.Continuations
 
             if (exception != null)
             {
-                _continuation(instance, default, exception, state);
+                _continuation(instance, default, exception, in state);
                 return returnValue;
             }
 
@@ -54,7 +56,7 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers.Continuations
                         // *
                         // Calls the CallTarget integration continuation, exceptions here should never bubble up to the application
                         // *
-                        _continuation(instance, default, ex, state);
+                        _continuation(instance, default, ex, in state);
                     }
                     catch (Exception contEx)
                     {
@@ -69,7 +71,7 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers.Continuations
                     // *
                     // Calls the CallTarget integration continuation, exceptions here should never bubble up to the application
                     // *
-                    _continuation(instance, default, default, state);
+                    _continuation(instance, default, default, in state);
                 }
                 catch (Exception contEx)
                 {
@@ -78,5 +80,5 @@ namespace Datadog.Trace.ClrProfiler.CallTarget.Handlers.Continuations
             }
         }
     }
-#endif
 }
+#endif

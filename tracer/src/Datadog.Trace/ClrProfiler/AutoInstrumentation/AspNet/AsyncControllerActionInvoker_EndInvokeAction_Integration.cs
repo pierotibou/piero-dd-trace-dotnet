@@ -7,6 +7,7 @@
 using System;
 using System.ComponentModel;
 using System.Web;
+using Datadog.Trace.AspNet;
 using Datadog.Trace.ClrProfiler.CallTarget;
 using Datadog.Trace.Configuration;
 using Datadog.Trace.ExtensionMethods;
@@ -47,14 +48,14 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
         /// <param name="exception">Exception instance in case the original code threw an exception.</param>
         /// <param name="state">Calltarget state value</param>
         /// <returns>Return value of the method</returns>
-        internal static CallTargetReturn<TResult> OnMethodEnd<TTarget, TResult>(TTarget instance, TResult returnValue, Exception exception, CallTargetState state)
+        internal static CallTargetReturn<TResult> OnMethodEnd<TTarget, TResult>(TTarget instance, TResult returnValue, Exception exception, in CallTargetState state)
         {
             Scope scope = null;
             var httpContext = HttpContext.Current;
 
             try
             {
-                scope = httpContext?.Items[AspNetMvcIntegration.HttpContextKey] as Scope;
+                scope = SharedItems.TryPopScope(httpContext, AspNetMvcIntegration.HttpContextKey);
             }
             catch (Exception ex)
             {
@@ -71,9 +72,14 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
                     // We use the OnRequestCompleted callback to be notified when that happens.
                     // We don't know how long it'll take for ASP.NET to invoke the callback,
                     // so we store the real finish time.
+                    // Additionally, update the scope so it does not finish the span on close. This allows
+                    // us to defer finishing the span later while making sure callers of this method do not
+                    // get this scope when calling Tracer.ActiveScope
                     var now = scope.Span.Context.TraceContext.UtcNow;
-
                     httpContext.AddOnRequestCompleted(h => OnRequestCompleted(h, scope, now));
+
+                    scope.SetFinishOnClose(false);
+                    scope.Dispose();
                 }
                 else
                 {
@@ -91,7 +97,6 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.AspNet
             HttpContextHelper.AddHeaderTagsFromHttpResponse(httpContext, scope);
             scope.Span.SetHttpStatusCode(httpContext.Response.StatusCode, isServer: true, Tracer.Instance.Settings);
             scope.Span.Finish(finishTime);
-            scope.Dispose();
         }
     }
 }

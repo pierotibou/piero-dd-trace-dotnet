@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Datadog.Trace.ExtensionMethods;
+using Datadog.Trace.Logging.DirectSubmission;
 using Datadog.Trace.PlatformHelpers;
 using Datadog.Trace.Util;
 using Datadog.Trace.Vendors.Serilog;
@@ -25,6 +26,18 @@ namespace Datadog.Trace.Configuration
         /// </summary>
         public TracerSettings()
             : this(null)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TracerSettings"/> class with default values,
+        /// or initializes the configuration from environment variables and configuration files.
+        /// Calling <c>new TracerSettings(true)</c> is equivalent to calling <c>TracerSettings.FromDefaultSources()</c>
+        /// </summary>
+        /// <param name="useDefaultSources">If <c>true</c>, creates a <see cref="TracerSettings"/> populated from
+        /// the default sources such as environment variables etc. If <c>false</c>, uses the default values.</param>
+        public TracerSettings(bool useDefaultSources)
+            : this(useDefaultSources ? CreateDefaultConfigurationSource() : null)
         {
         }
 
@@ -68,11 +81,10 @@ namespace Datadog.Trace.Configuration
                                false;
 #pragma warning restore 618
 
-            LogsInjectionEnabled = source?.GetBool(ConfigurationKeys.LogsInjectionEnabled) ??
-                                   // default value
-                                   false;
-
-            MaxTracesSubmittedPerSecond = source?.GetInt32(ConfigurationKeys.MaxTracesSubmittedPerSecond) ??
+            MaxTracesSubmittedPerSecond = source?.GetInt32(ConfigurationKeys.TraceRateLimit) ??
+#pragma warning disable 618 // this parameter has been replaced but may still be used
+                                          source?.GetInt32(ConfigurationKeys.MaxTracesSubmittedPerSecond) ??
+#pragma warning restore 618
                                           // default value
                                           100;
 
@@ -90,8 +102,9 @@ namespace Datadog.Trace.Configuration
                          // default value (empty)
                          new Dictionary<string, string>();
 
-            // Filter out tags with empty keys or empty values, and trim whitespace
-            HeaderTags = InitializeHeaderTags(inputHeaderTags);
+            var headerTagsNormalizationFixEnabled = source?.GetBool(ConfigurationKeys.FeatureFlags.HeaderTagsNormalizationFixEnabled) ?? true;
+            // Filter out tags with empty keys or empty values, and trim whitespaces
+            HeaderTags = InitializeHeaderTags(inputHeaderTags, headerTagsNormalizationFixEnabled);
 
             var serviceNameMappings = source?.GetDictionary(ConfigurationKeys.ServiceNameMappings)
                                       ?.Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && !string.IsNullOrWhiteSpace(kvp.Value))
@@ -143,11 +156,50 @@ namespace Datadog.Trace.Configuration
             RouteTemplateResourceNamesEnabled = source?.GetBool(ConfigurationKeys.FeatureFlags.RouteTemplateResourceNamesEnabled)
                                                    ?? true;
 
+            ExpandRouteTemplatesEnabled = source?.GetBool(ConfigurationKeys.ExpandRouteTemplatesEnabled)
+                                        // disabled by default if route template resource names enabled
+                                        ?? !RouteTemplateResourceNamesEnabled;
+
             KafkaCreateConsumerScopeEnabled = source?.GetBool(ConfigurationKeys.KafkaCreateConsumerScopeEnabled)
                                            ?? true; // default
 
             DelayWcfInstrumentationEnabled = source?.GetBool(ConfigurationKeys.FeatureFlags.DelayWcfInstrumentationEnabled)
                                             ?? false;
+
+            PropagationStyleInject = TrimSplitString(source?.GetString(ConfigurationKeys.PropagationStyleInject) ?? nameof(Propagators.ContextPropagators.Names.Datadog), ',').ToArray();
+
+            PropagationStyleExtract = TrimSplitString(source?.GetString(ConfigurationKeys.PropagationStyleExtract) ?? nameof(Propagators.ContextPropagators.Names.Datadog), ',').ToArray();
+
+            LogSubmissionSettings = new DirectLogSubmissionSettings(source);
+
+            TraceMethods = source?.GetString(ConfigurationKeys.TraceMethods) ??
+                           // Default value
+                           string.Empty;
+
+            var grpcTags = source?.GetDictionary(ConfigurationKeys.GrpcTags, allowOptionalMappings: true) ??
+                                  // default value (empty)
+                                  new Dictionary<string, string>();
+
+            // Filter out tags with empty keys or empty values, and trim whitespaces
+            GrpcTags = InitializeHeaderTags(grpcTags, headerTagsNormalizationFixEnabled: true);
+
+            IsActivityListenerEnabled = source?.GetBool(ConfigurationKeys.FeatureFlags.ActivityListenerEnabled) ??
+                                // default value
+                                false;
+
+            if (IsActivityListenerEnabled)
+            {
+                // If the activities support is activated, we must enable W3C propagators
+                if (!Array.Exists(PropagationStyleExtract, key => string.Equals(key, nameof(Propagators.ContextPropagators.Names.W3C), StringComparison.OrdinalIgnoreCase)))
+                {
+                    PropagationStyleExtract = PropagationStyleExtract.Concat(nameof(Propagators.ContextPropagators.Names.W3C));
+                }
+
+                if (!Array.Exists(PropagationStyleInject, key => string.Equals(key, nameof(Propagators.ContextPropagators.Names.W3C), StringComparison.OrdinalIgnoreCase)))
+                {
+                    PropagationStyleInject = PropagationStyleInject.Concat(nameof(Propagators.ContextPropagators.Names.W3C));
+                }
+            }
         }
 
         /// <summary>
@@ -199,16 +251,21 @@ namespace Datadog.Trace.Configuration
         /// <summary>
         /// Gets or sets a value indicating whether correlation identifiers are
         /// automatically injected into the logging context.
-        /// Default is <c>false</c>.
+        /// Default is <c>false</c>, unless <see cref="ConfigurationKeys.DirectLogSubmission.EnabledIntegrations"/>
+        /// enables Direct Log Submission.
         /// </summary>
         /// <seealso cref="ConfigurationKeys.LogsInjectionEnabled"/>
-        public bool LogsInjectionEnabled { get; set; }
+        public bool LogsInjectionEnabled
+        {
+            get => LogSubmissionSettings?.LogsInjectionEnabled ?? false;
+            set => LogSubmissionSettings.LogsInjectionEnabled = value;
+        }
 
         /// <summary>
         /// Gets or sets a value indicating the maximum number of traces set to AutoKeep (p1) per second.
         /// Default is <c>100</c>.
         /// </summary>
-        /// <seealso cref="ConfigurationKeys.MaxTracesSubmittedPerSecond"/>
+        /// <seealso cref="ConfigurationKeys.TraceRateLimit"/>
         public int MaxTracesSubmittedPerSecond { get; set; }
 
         /// <summary>
@@ -234,9 +291,16 @@ namespace Datadog.Trace.Configuration
         public IDictionary<string, string> GlobalTags { get; set; }
 
         /// <summary>
-        /// Gets or sets the map of header keys to tag names, which are applied to the root <see cref="Span"/> of incoming requests.
+        /// Gets or sets the map of header keys to tag names, which are applied to the root <see cref="Span"/>
+        /// of incoming and outgoing HTTP requests.
         /// </summary>
         public IDictionary<string, string> HeaderTags { get; set; }
+
+        /// <summary>
+        /// Gets or sets the map of metadata keys to tag names, which are applied to the root <see cref="Span"/>
+        /// of incoming and outgoing GRPC requests.
+        /// </summary>
+        public IDictionary<string, string> GrpcTags { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether internal metrics
@@ -277,6 +341,16 @@ namespace Datadog.Trace.Configuration
         /// Gets or sets a value indicating whether the diagnostic log at startup is enabled
         /// </summary>
         public bool StartupDiagnosticLogEnabled { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating the injection propagation style.
+        /// </summary>
+        internal string[] PropagationStyleInject { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating the extraction propagation style.
+        /// </summary>
+        internal string[] PropagationStyleExtract { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether runtime metrics
@@ -322,6 +396,27 @@ namespace Datadog.Trace.Configuration
         /// </summary>
         /// <seealso cref="ConfigurationKeys.FeatureFlags.RouteTemplateResourceNamesEnabled"/>
         internal bool RouteTemplateResourceNamesEnabled { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether resource names for ASP.NET and ASP.NET Core spans should be expanded. Only applies
+        /// when <see cref="RouteTemplateResourceNamesEnabled"/> is <code>true</code>.
+        /// </summary>
+        internal bool ExpandRouteTemplatesEnabled { get; }
+
+        /// <summary>
+        /// Gets or sets the direct log submission settings.
+        /// </summary>
+        internal DirectLogSubmissionSettings LogSubmissionSettings { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating the trace methods configuration.
+        /// </summary>
+        internal string TraceMethods { get; set; }
+
+        /// <summary>
+        /// Gets a value indicating whether the activity listener is enabled or not.
+        /// </summary>
+        internal bool IsActivityListenerEnabled { get; }
 
         /// <summary>
         /// Create a <see cref="TracerSettings"/> populated from the default sources
@@ -383,19 +478,33 @@ namespace Datadog.Trace.Configuration
             return new ImmutableTracerSettings(this);
         }
 
-        private static IDictionary<string, string> InitializeHeaderTags(IDictionary<string, string> configurationDictionary)
+        private static IDictionary<string, string> InitializeHeaderTags(IDictionary<string, string> configurationDictionary, bool headerTagsNormalizationFixEnabled)
         {
             var headerTags = new Dictionary<string, string>();
 
-            foreach (KeyValuePair<string, string> kvp in configurationDictionary)
+            foreach (var kvp in configurationDictionary)
             {
-                if (!string.IsNullOrWhiteSpace(kvp.Key) && string.IsNullOrWhiteSpace(kvp.Value))
+                var headerName = kvp.Key;
+                var providedTagName = kvp.Value;
+                if (string.IsNullOrWhiteSpace(headerName))
                 {
-                    headerTags.Add(kvp.Key.Trim(), string.Empty);
+                    continue;
                 }
-                else if (!string.IsNullOrWhiteSpace(kvp.Key) && kvp.Value.TryConvertToNormalizedHeaderTagName(out string result))
+
+                // The user has not provided a tag name. The normalization will happen later, when adding the prefix.
+                if (string.IsNullOrEmpty(providedTagName))
                 {
-                    headerTags.Add(kvp.Key.Trim(), result);
+                    headerTags.Add(headerName.Trim(), string.Empty);
+                }
+                else if (headerTagsNormalizationFixEnabled && providedTagName.TryConvertToNormalizedTagName(normalizePeriods: false, out var normalizedTagName))
+                {
+                    // If the user has provided a tag name, then we don't normalize periods in the provided tag name
+                    headerTags.Add(headerName.Trim(), normalizedTagName);
+                }
+                else if (!headerTagsNormalizationFixEnabled && providedTagName.TryConvertToNormalizedTagName(normalizePeriods: true, out var normalizedTagNameNoPeriods))
+                {
+                    // Back to the previous behaviour if the flag is set
+                    headerTags.Add(headerName.Trim(), normalizedTagNameNoPeriods);
                 }
             }
 

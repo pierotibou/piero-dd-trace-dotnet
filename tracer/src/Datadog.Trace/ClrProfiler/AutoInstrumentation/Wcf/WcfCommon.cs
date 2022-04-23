@@ -9,10 +9,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Reflection;
-using Datadog.Trace.ClrProfiler.Emit;
 using Datadog.Trace.Configuration;
+using Datadog.Trace.DuckTyping;
 using Datadog.Trace.ExtensionMethods;
 using Datadog.Trace.Logging;
+using Datadog.Trace.Propagators;
 using Datadog.Trace.Tagging;
 
 namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Wcf
@@ -28,9 +29,10 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Wcf
 
         public static Func<object> GetCurrentOperationContext => _getCurrentOperationContext.Value;
 
-        internal static Scope CreateScope(object requestContext)
+        internal static Scope CreateScope<TRequestContext>(TRequestContext requestContext)
+            where TRequestContext : IRequestContext
         {
-            var requestMessage = requestContext.GetProperty<object>("RequestMessage").GetValueOrDefault();
+            var requestMessage = requestContext.RequestMessage;
 
             if (requestMessage == null)
             {
@@ -54,15 +56,16 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Wcf
                 string host = null;
                 string httpMethod = null;
 
-                IDictionary<string, object> requestProperties = requestMessage.GetProperty<IDictionary<string, object>>("Properties").GetValueOrDefault();
+                IDictionary<string, object> requestProperties = requestMessage.Properties;
                 if (requestProperties.TryGetValue("httpRequest", out object httpRequestProperty) &&
                     httpRequestProperty.GetType().FullName.Equals(HttpRequestMessagePropertyTypeName, StringComparison.OrdinalIgnoreCase))
                 {
-                    var webHeaderCollection = httpRequestProperty.GetProperty<WebHeaderCollection>("Headers").GetValueOrDefault();
+                    var httpRequestPropertyProxy = httpRequestProperty.DuckCast<HttpRequestMessagePropertyStruct>();
+                    var webHeaderCollection = httpRequestPropertyProxy.Headers;
 
                     // we're using an http transport
                     host = webHeaderCollection[HttpRequestHeader.Host];
-                    httpMethod = httpRequestProperty.GetProperty<string>("Method").GetValueOrDefault()?.ToUpperInvariant();
+                    httpMethod = httpRequestPropertyProxy.Method?.ToUpperInvariant();
 
                     // try to extract propagated context values from http headers
                     if (tracer.ActiveScope == null)
@@ -84,9 +87,9 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Wcf
                 scope = tracer.StartActiveInternal("wcf.request", propagatedContext, tags: tags);
                 var span = scope.Span;
 
-                object requestHeaders = requestMessage.GetProperty<object>("Headers").GetValueOrDefault();
-                string action = requestHeaders.GetProperty<string>("Action").GetValueOrDefault();
-                Uri requestHeadersTo = requestHeaders.GetProperty<Uri>("To").GetValueOrDefault();
+                var requestHeaders = requestMessage.Headers;
+                string action = requestHeaders.Action;
+                Uri requestHeadersTo = requestHeaders.To;
 
                 span.DecorateWebServerSpan(
                     resourceName: action ?? requestHeadersTo?.LocalPath,
@@ -97,6 +100,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.Wcf
                     tagsFromHeaders);
 
                 tags.SetAnalyticsSampleRate(IntegrationId, tracer.Settings, enabledWithGlobalSetting: true);
+                tracer.TracerManager.Telemetry.IntegrationGeneratedSpan(IntegrationId);
             }
             catch (Exception ex)
             {

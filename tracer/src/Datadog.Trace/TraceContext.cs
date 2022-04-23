@@ -13,7 +13,7 @@ using Datadog.Trace.Util;
 
 namespace Datadog.Trace
 {
-    internal class TraceContext : ITraceContext
+    internal class TraceContext
     {
         private static readonly IDatadogLogger Log = DatadogLogging.GetLoggerFor<TraceContext>();
 
@@ -22,11 +22,12 @@ namespace Datadog.Trace
         private ArrayBuilder<Span> _spans;
 
         private int _openSpans;
-        private SamplingPriority? _samplingPriority;
+        private int? _samplingPriority;
 
-        public TraceContext(IDatadogTracer tracer)
+        public TraceContext(IDatadogTracer tracer, TraceTagCollection tags = null)
         {
             Tracer = tracer;
+            Tags = tags;
         }
 
         public Span RootSpan { get; private set; }
@@ -35,16 +36,14 @@ namespace Datadog.Trace
 
         public IDatadogTracer Tracer { get; }
 
+        public TraceTagCollection Tags { get; }
+
         /// <summary>
-        /// Gets or sets sampling priority.
+        /// Gets the trace's sampling priority.
         /// </summary>
-        public SamplingPriority? SamplingPriority
+        public int? SamplingPriority
         {
             get => _samplingPriority;
-            set
-            {
-                SetSamplingPriority(value);
-            }
         }
 
         private TimeSpan Elapsed => StopwatchHelpers.GetElapsed(Stopwatch.GetTimestamp() - _timestamp);
@@ -71,8 +70,7 @@ namespace Datadog.Trace
                         {
                             // this is a local root span (i.e. not propagated).
                             // determine an initial sampling priority for this trace, but don't lock it yet
-                            _samplingPriority =
-                                Tracer.Sampler?.GetSamplingPriority(RootSpan);
+                            _samplingPriority = Tracer.Sampler?.GetSamplingPriority(RootSpan);
                         }
                     }
                 }
@@ -93,7 +91,7 @@ namespace Datadog.Trace
                 }
                 else
                 {
-                    SetSamplingPriority(span, _samplingPriority.Value);
+                    AddSamplingPriorityTags(span, _samplingPriority.Value);
                 }
             }
 
@@ -143,7 +141,7 @@ namespace Datadog.Trace
             }
         }
 
-        public void SetSamplingPriority(SamplingPriority? samplingPriority, bool notifyDistributedTracer = true)
+        public void SetSamplingPriority(int? samplingPriority, bool notifyDistributedTracer = true)
         {
             _samplingPriority = samplingPriority;
 
@@ -158,15 +156,15 @@ namespace Datadog.Trace
             return Elapsed + (_utcStart - date);
         }
 
-        private static void SetSamplingPriority(Span span, SamplingPriority samplingPriority)
+        private static void AddSamplingPriorityTags(Span span, int samplingPriority)
         {
             if (span.Tags is CommonTags tags)
             {
-                tags.SamplingPriority = (int)samplingPriority;
+                tags.SamplingPriority = samplingPriority;
             }
             else
             {
-                span.Tags.SetMetric(Metrics.SamplingPriority, (int)samplingPriority);
+                span.Tags.SetMetric(Metrics.SamplingPriority, samplingPriority);
             }
         }
 
@@ -185,7 +183,7 @@ namespace Datadog.Trace
             // Using a for loop to avoid the boxing allocation on ArraySegment.GetEnumerator
             for (int i = 0; i < spans.Count; i++)
             {
-                SetSamplingPriority(spans.Array[i + spans.Offset], samplingPriority.Value);
+                AddSamplingPriorityTags(spans.Array[i + spans.Offset], samplingPriority.Value);
             }
         }
 
@@ -193,17 +191,17 @@ namespace Datadog.Trace
         {
             if (AzureAppServices.Metadata.IsRelevant)
             {
-                span.SetTag(Tags.AzureAppServicesSiteName, AzureAppServices.Metadata.SiteName);
-                span.SetTag(Tags.AzureAppServicesSiteKind, AzureAppServices.Metadata.SiteKind);
-                span.SetTag(Tags.AzureAppServicesSiteType, AzureAppServices.Metadata.SiteType);
-                span.SetTag(Tags.AzureAppServicesResourceGroup, AzureAppServices.Metadata.ResourceGroup);
-                span.SetTag(Tags.AzureAppServicesSubscriptionId, AzureAppServices.Metadata.SubscriptionId);
-                span.SetTag(Tags.AzureAppServicesResourceId, AzureAppServices.Metadata.ResourceId);
-                span.SetTag(Tags.AzureAppServicesInstanceId, AzureAppServices.Metadata.InstanceId);
-                span.SetTag(Tags.AzureAppServicesInstanceName, AzureAppServices.Metadata.InstanceName);
-                span.SetTag(Tags.AzureAppServicesOperatingSystem, AzureAppServices.Metadata.OperatingSystem);
-                span.SetTag(Tags.AzureAppServicesRuntime, AzureAppServices.Metadata.Runtime);
-                span.SetTag(Tags.AzureAppServicesExtensionVersion, AzureAppServices.Metadata.SiteExtensionVersion);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesSiteName, AzureAppServices.Metadata.SiteName);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesSiteKind, AzureAppServices.Metadata.SiteKind);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesSiteType, AzureAppServices.Metadata.SiteType);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesResourceGroup, AzureAppServices.Metadata.ResourceGroup);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesSubscriptionId, AzureAppServices.Metadata.SubscriptionId);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesResourceId, AzureAppServices.Metadata.ResourceId);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesInstanceId, AzureAppServices.Metadata.InstanceId);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesInstanceName, AzureAppServices.Metadata.InstanceName);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesOperatingSystem, AzureAppServices.Metadata.OperatingSystem);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesRuntime, AzureAppServices.Metadata.Runtime);
+                span.SetTag(Datadog.Trace.Tags.AzureAppServicesExtensionVersion, AzureAppServices.Metadata.SiteExtensionVersion);
             }
         }
     }

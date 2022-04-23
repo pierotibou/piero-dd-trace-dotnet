@@ -13,15 +13,13 @@ namespace Datadog.Trace.TestHelpers
         public static Process StartProcessWithProfiler(
             string executable,
             EnvironmentHelper environmentHelper,
+            MockTracerAgent agent,
             string arguments = null,
             bool redirectStandardInput = false,
-            int traceAgentPort = 9696,
             int aspNetCorePort = 5000,
-            int? statsdPort = null,
             string processToProfile = null,
             bool? enableSecurity = null,
-            bool? enableBlocking = null,
-            bool? callTargetEnabled = null)
+            string externalRulesFile = null)
         {
             if (environmentHelper == null)
             {
@@ -33,7 +31,13 @@ namespace Datadog.Trace.TestHelpers
 
             var startInfo = new ProcessStartInfo(executable, $"{arguments ?? string.Empty}");
 
-            environmentHelper.SetEnvironmentVariables(traceAgentPort, aspNetCorePort, statsdPort, startInfo.EnvironmentVariables, processToProfile, enableSecurity.GetValueOrDefault(), enableBlocking.GetValueOrDefault());
+            environmentHelper.SetEnvironmentVariables(
+                agent,
+                aspNetCorePort,
+                startInfo.Environment,
+                processToProfile,
+                enableSecurity.GetValueOrDefault(),
+                externalRulesFile);
 
             startInfo.UseShellExecute = false;
             startInfo.CreateNoWindow = true;

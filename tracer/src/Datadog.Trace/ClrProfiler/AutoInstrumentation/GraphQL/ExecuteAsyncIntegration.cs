@@ -12,17 +12,29 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
     /// <summary>
     /// GraphQL.Execution.ExecutionStrategy calltarget instrumentation
     /// </summary>
-    [GraphQLExecuteAsync(
+    [InstrumentMethodAttribute(
+        IntegrationName = GraphQLCommon.IntegrationName,
+        MethodName = GraphQLCommon.ExecuteAsyncMethodName,
+        ReturnTypeName = GraphQLCommon.ReturnTypeName,
+        ParameterTypeNames = new[] { GraphQLCommon.ExecutionContextTypeName },
         AssemblyName = GraphQLCommon.GraphQLAssembly,
         TypeName = "GraphQL.Execution.ExecutionStrategy",
         MinimumVersion = GraphQLCommon.Major2Minor3,
         MaximumVersion = GraphQLCommon.Major4)]
-    [GraphQLExecuteAsync(
+    [InstrumentMethodAttribute(
+        IntegrationName = GraphQLCommon.IntegrationName,
+        MethodName = GraphQLCommon.ExecuteAsyncMethodName,
+        ReturnTypeName = GraphQLCommon.ReturnTypeName,
+        ParameterTypeNames = new[] { GraphQLCommon.ExecutionContextTypeName },
         AssemblyName = GraphQLCommon.GraphQLAssembly,
         TypeName = "GraphQL.Execution.SubscriptionExecutionStrategy",
         MinimumVersion = GraphQLCommon.Major2Minor3,
         MaximumVersion = GraphQLCommon.Major3)]
-    [GraphQLExecuteAsync(
+    [InstrumentMethodAttribute(
+        IntegrationName = GraphQLCommon.IntegrationName,
+        MethodName = GraphQLCommon.ExecuteAsyncMethodName,
+        ReturnTypeName = GraphQLCommon.ReturnTypeName,
+        ParameterTypeNames = new[] { GraphQLCommon.ExecutionContextTypeName },
         AssemblyName = GraphQLCommon.GraphQLReactiveAssembly,
         TypeName = "GraphQL.Execution.SubscriptionExecutionStrategy",
         MinimumVersion = GraphQLCommon.Major4,
@@ -57,7 +69,7 @@ namespace Datadog.Trace.ClrProfiler.AutoInstrumentation.GraphQL
         /// <param name="exception">Exception instance in case the original code threw an exception.</param>
         /// <param name="state">Calltarget state value</param>
         /// <returns>A response value, in an async scenario will be T of Task of T</returns>
-        internal static TExecutionResult OnAsyncMethodEnd<TTarget, TExecutionResult>(TTarget instance, TExecutionResult executionResult, Exception exception, CallTargetState state)
+        internal static TExecutionResult OnAsyncMethodEnd<TTarget, TExecutionResult>(TTarget instance, TExecutionResult executionResult, Exception exception, in CallTargetState state)
         {
             Scope scope = state.Scope;
             if (state.Scope is null)

@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Linq;
 using Datadog.Trace.Configuration;
 using Datadog.Trace.Vendors.Newtonsoft.Json;
 using Xunit;
@@ -14,12 +15,24 @@ namespace Datadog.Trace.Tests.Configuration
 {
     [CollectionDefinition(nameof(ConfigurationSourceTests), DisableParallelization = true)]
     [Collection(nameof(ConfigurationSourceTests))]
-    public class ConfigurationSourceTests
+    public class ConfigurationSourceTests : IDisposable
     {
         private static readonly Dictionary<string, string> TagsK1V1K2V2 = new Dictionary<string, string> { { "k1", "v1" }, { "k2", "v2" } };
         private static readonly Dictionary<string, string> TagsK2V2 = new Dictionary<string, string> { { "k2", "v2" } };
-        private static readonly Dictionary<string, string> HeaderTagsWithOptionalMappings = new Dictionary<string, string> { { "header1", "tag1" }, { "header2", "content-type" }, { "header3", "content-type" }, { "header4", "c___ont_____ent----typ_/_e" }, { "header5", "some_header" }, { "validheaderonly", string.Empty }, { "validheaderwithoutcolon", string.Empty } };
+        private static readonly Dictionary<string, string> HeaderTagsWithOptionalMappings = new Dictionary<string, string> { { "header1", "tag1" }, { "header2", "content-type" }, { "header3", "content-type" }, { "header4", "c___ont_____ent----typ_/_e" }, { "validheaderonly", string.Empty }, { "validheaderwithoutcolon", string.Empty } };
+        private static readonly Dictionary<string, string> HeaderTagsWithDots = new Dictionary<string, string> { { "header3", "my.header.with.dot" }, { "my.new.header.with.dot", string.Empty } };
         private static readonly Dictionary<string, string> HeaderTagsSameTag = new Dictionary<string, string> { { "header1", "tag1" }, { "header2", "tag1" } };
+
+        private readonly Dictionary<string, string> _envVars;
+
+        public ConfigurationSourceTests()
+        {
+            _envVars = GetTestData()
+                      .Concat(GetGlobalTestData())
+                      .Select(allArgs => (string)allArgs[0])
+                      .Distinct()
+                      .ToDictionary(key => key, key => Environment.GetEnvironmentVariable(key));
+        }
 
         public static IEnumerable<object[]> GetGlobalDefaultTestData()
         {
@@ -94,9 +107,10 @@ namespace Datadog.Trace.Tests.Configuration
             yield return new object[] { ConfigurationKeys.GlobalAnalyticsEnabled, "false", CreateFunc(s => s.AnalyticsEnabled), false };
 #pragma warning restore 618
 
-            yield return new object[] { ConfigurationKeys.HeaderTags, "header1:tag1,header2:Content-Type,header3: Content-Type ,header4:C!!!ont_____ent----tYp!/!e,header5:Some.Header,header6:9invalidtagname,:invalidtagonly,validheaderonly:,validheaderwithoutcolon,:", CreateFunc(s => s.HeaderTags), HeaderTagsWithOptionalMappings };
+            yield return new object[] { ConfigurationKeys.HeaderTags, "header1:tag1,header2:Content-Type,header3: Content-Type ,header4:C!!!ont_____ent----tYp!/!e,header6:9invalidtagname,:invalidtagonly,validheaderonly:,validheaderwithoutcolon,:", CreateFunc(s => s.HeaderTags), HeaderTagsWithOptionalMappings };
             yield return new object[] { ConfigurationKeys.HeaderTags, "header1:tag1,header2:tag1", CreateFunc(s => s.HeaderTags), HeaderTagsSameTag };
             yield return new object[] { ConfigurationKeys.HeaderTags, "header1:tag1,header1:tag2", CreateFunc(s => s.HeaderTags.Count), 1 };
+            yield return new object[] { ConfigurationKeys.HeaderTags, "header3:my.header.with.dot,my.new.header.with.dot", CreateFunc(s => s.HeaderTags), HeaderTagsWithDots };
         }
 
         // JsonConfigurationSource needs to be tested with JSON data, which cannot be used with the other IConfigurationSource implementations.
@@ -133,6 +147,14 @@ namespace Datadog.Trace.Tests.Configuration
             return settingGetter;
         }
 
+        public void Dispose()
+        {
+            foreach (var envVar in _envVars)
+            {
+                Environment.SetEnvironmentVariable(envVar.Key, envVar.Value, EnvironmentVariableTarget.Process);
+            }
+        }
+
         [Theory]
         [MemberData(nameof(GetDefaultTestData))]
         public void DefaultSetting(Func<TracerSettings, object> settingGetter, object expectedValue)
@@ -165,40 +187,27 @@ namespace Datadog.Trace.Tests.Configuration
             Func<TracerSettings, object> settingGetter,
             object expectedValue)
         {
-            // save original value so we can restore later
-            var originalValue = Environment.GetEnvironmentVariable(key);
-
             TracerSettings settings;
 
             if (key == "DD_SERVICE_NAME")
             {
                 // We need to ensure DD_SERVICE is empty.
-                string originalServiceName = Environment.GetEnvironmentVariable(ConfigurationKeys.ServiceName);
                 Environment.SetEnvironmentVariable(ConfigurationKeys.ServiceName, null, EnvironmentVariableTarget.Process);
-
                 settings = GetTracerSettings(key, value);
-
-                // after load settings we can restore the original DD_SERVICE
-                Environment.SetEnvironmentVariable(ConfigurationKeys.ServiceName, originalServiceName, EnvironmentVariableTarget.Process);
             }
             else if (key == ConfigurationKeys.AgentHost || key == ConfigurationKeys.AgentPort)
             {
-                // We need to ensure DD_TRACE_AGENT_URL is empty.
-                string originalAgentUri = Environment.GetEnvironmentVariable(ConfigurationKeys.AgentUri);
+                // We need to ensure all the agent URLs are empty.
+                Environment.SetEnvironmentVariable(ConfigurationKeys.AgentHost, null, EnvironmentVariableTarget.Process);
+                Environment.SetEnvironmentVariable(ConfigurationKeys.AgentPort, null, EnvironmentVariableTarget.Process);
                 Environment.SetEnvironmentVariable(ConfigurationKeys.AgentUri, null, EnvironmentVariableTarget.Process);
 
                 settings = GetTracerSettings(key, value);
-
-                // after load settings we can restore the original DD_TRACE_AGENT_URL
-                Environment.SetEnvironmentVariable(ConfigurationKeys.AgentUri, originalAgentUri, EnvironmentVariableTarget.Process);
             }
             else
             {
                 settings = GetTracerSettings(key, value);
             }
-
-            // restore original value
-            Environment.SetEnvironmentVariable(key, originalValue, EnvironmentVariableTarget.Process);
 
             object actualValue = settingGetter(settings);
             Assert.Equal(expectedValue, actualValue);
@@ -263,10 +272,8 @@ namespace Datadog.Trace.Tests.Configuration
             IConfigurationSource source = new EnvironmentConfigurationSource();
 
             // save original value so we can restore later
-            var originalValue = Environment.GetEnvironmentVariable(key);
             Environment.SetEnvironmentVariable(key, value, EnvironmentVariableTarget.Process);
             var settings = new GlobalSettings(source);
-            Environment.SetEnvironmentVariable(key, originalValue, EnvironmentVariableTarget.Process);
 
             object actualValue = settingGetter(settings);
             Assert.Equal(expectedValue, actualValue);
@@ -315,6 +322,24 @@ namespace Datadog.Trace.Tests.Configuration
 
             var actualValue = settingGetter(settings);
             Assert.Equal(expectedValue, actualValue);
+        }
+
+        [Theory]
+        [InlineData(false, "tag_1")]
+        [InlineData(true, "tag.1")]
+        public void TestHeaderTagsNormalization(bool headerTagsNormalizationFixEnabled, string expectedHeader)
+        {
+            var expectedValue = new Dictionary<string, string> { { "header", expectedHeader } };
+            var collection = new NameValueCollection
+            {
+                { ConfigurationKeys.FeatureFlags.HeaderTagsNormalizationFixEnabled, headerTagsNormalizationFixEnabled.ToString() },
+                { ConfigurationKeys.HeaderTags, "header:tag.1" },
+            };
+
+            IConfigurationSource source = new NameValueConfigurationSource(collection);
+            var settings = new TracerSettings(source);
+
+            Assert.Equal(expectedValue, settings.HeaderTags);
         }
     }
 }

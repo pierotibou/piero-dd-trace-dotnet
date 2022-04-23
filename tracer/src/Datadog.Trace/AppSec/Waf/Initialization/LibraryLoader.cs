@@ -1,4 +1,4 @@
-﻿// <copyright file="LibraryLoader.cs" company="Datadog">
+// <copyright file="LibraryLoader.cs" company="Datadog">
 // Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2017 Datadog, Inc.
 // </copyright>
@@ -47,7 +47,7 @@ namespace Datadog.Trace.AppSec.Waf.Initialization
 
             var paths = GetHomeFolders(runtimeId);
 
-            if (frameworkDescription.OSPlatform == OSPlatform.Windows)
+            if (frameworkDescription.OSPlatform == OSPlatformName.Windows)
             {
                 var programFilesFolder = GetProgramFilesFolder();
                 paths.Add(programFilesFolder);
@@ -209,17 +209,17 @@ namespace Datadog.Trace.AppSec.Waf.Initialization
 
             switch (frameworkDescription.OSPlatform)
             {
-                case OSPlatform.MacOS:
+                case OSPlatformName.MacOS:
                     runtimeIdPart1 = "osx";
                     libPrefix = "lib";
                     libExt = "dylib";
                     break;
-                case OSPlatform.Linux:
+                case OSPlatformName.Linux:
                     runtimeIdPart1 = "linux";
                     libPrefix = "lib";
                     libExt = "so";
                     break;
-                case OSPlatform.Windows:
+                case OSPlatformName.Windows:
                     runtimeIdPart1 = "win";
                     libPrefix = string.Empty;
                     libExt = "dll";
@@ -235,7 +235,17 @@ namespace Datadog.Trace.AppSec.Waf.Initialization
             if (runtimeIdPart1 != null && libPrefix != null && libExt != null)
             {
                 libName = libPrefix + "ddwaf." + libExt;
-                runtimeId = Environment.Is64BitProcess ? runtimeIdPart1 + "-x64" : runtimeIdPart1 + "-x86";
+                string procArch;
+                if (frameworkDescription.ProcessArchitecture == ProcessArchitecture.Arm64)
+                {
+                    procArch = ProcessArchitecture.Arm64;
+                }
+                else
+                {
+                    procArch = Environment.Is64BitProcess ? ProcessArchitecture.X64 : ProcessArchitecture.X86;
+                }
+
+                runtimeId = $"{runtimeIdPart1}-{procArch}";
             }
             else
             {

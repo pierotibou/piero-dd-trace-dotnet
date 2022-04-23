@@ -18,14 +18,14 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.VersionConflict
         {
         }
 
-        [Fact]
+        [SkippableFact]
         public void SubmitTraces()
         {
             // 1 manual span + 1 http span
             const int expectedSpanCount = 2;
 
             using (var agent = EnvironmentHelper.GetMockAgent())
-            using (var processResult = RunSampleAndWaitForExit(agent.Port))
+            using (var processResult = RunSampleAndWaitForExit(agent))
             {
                 var spans = agent.WaitForSpans(expectedSpanCount);
 
@@ -39,7 +39,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests.VersionConflict
 
                 var manualSpan = spans.Single(s => s.Name == "Manual");
 
-                manualSpan.Metrics[Metrics.SamplingPriority].Should().Be((double)SamplingPriority.UserReject);
+                manualSpan.Metrics[Metrics.SamplingPriority].Should().Be(SamplingPriorityValues.UserReject);
             }
         }
     }

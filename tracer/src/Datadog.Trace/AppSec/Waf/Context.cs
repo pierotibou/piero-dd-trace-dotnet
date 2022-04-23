@@ -5,9 +5,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Datadog.Trace.AppSec.Waf.NativeBindings;
 using Datadog.Trace.Logging;
-using Datadog.Trace.Util;
 using Datadog.Trace.Vendors.Serilog.Events;
 
 namespace Datadog.Trace.AppSec.Waf
@@ -15,68 +15,58 @@ namespace Datadog.Trace.AppSec.Waf
     internal class Context : IContext
     {
         private static readonly IDatadogLogger Log = DatadogLogging.GetLoggerFor<Context>();
+        private readonly IDictionary<string, object> _addresses = new Dictionary<string, object>();
         private readonly IntPtr contextHandle;
         private readonly WafNative wafNative;
         private readonly Encoder encoder;
         private readonly List<Obj> argCache = new();
+        private readonly Stopwatch _stopwatch;
         private bool disposed = false;
+        private ulong _totalRuntimeOverRuns;
 
         public Context(IntPtr contextHandle, WafNative wafNative, Encoder encoder)
         {
             this.contextHandle = contextHandle;
             this.wafNative = wafNative;
             this.encoder = encoder;
+            _stopwatch = new Stopwatch();
         }
 
-        ~Context()
-        {
-            Dispose(false);
-        }
+        ~Context() => Dispose(false);
 
-        public IResult Run(IDictionary<string, object> args)
+        public IResult Run(ulong timeoutMicroSeconds)
         {
-            LogParametersIfDebugEnabled(args);
-
-            var pwArgs = encoder.Encode(args, argCache);
+            var pwArgs = encoder.Encode(_addresses, argCache, applySafetyLimits: true);
 
             if (Log.IsEnabled(LogEventLevel.Debug))
             {
-                Log.Debug("Executing AppSec In-App WAF");
+                var parameters = Encoder.FormatArgs(_addresses);
+                Log.Debug("DDAS-0010-00: Executing AppSec In-App WAF with parameters: {Parameters}", parameters);
             }
 
-            var rawAgs = pwArgs.RawPtr;
+            var rawArgs = pwArgs.RawPtr;
             DdwafResultStruct retNative = default;
-
-            var code = wafNative.Run(contextHandle, rawAgs, ref retNative, 1000000);
-
-            var ret = new Result(retNative, code, wafNative);
+            var code = wafNative.Run(contextHandle, rawArgs, ref retNative, timeoutMicroSeconds);
+            _stopwatch.Stop();
+            _totalRuntimeOverRuns += retNative.TotalRuntime / 1000;
+            var result = new Result(retNative, code, wafNative, _totalRuntimeOverRuns, (ulong)_stopwatch.Elapsed.TotalMilliseconds * 1000);
 
             if (Log.IsEnabled(LogEventLevel.Debug))
             {
-                Log.Debug<ReturnCode, string>(
-                    @"AppSec In-App WAF returned: {ReturnCode} {Data} Took {PerfTotalRuntime} ms",
-                    ret.ReturnCode,
-                    ret.Data,
-                    retNative.PerfTotalRuntime);
+                Log.Debug(
+                    "DDAS-0011-00: AppSec In-App WAF returned: {ReturnCode} {Data}",
+                    result.ReturnCode,
+                    result.Data);
             }
 
-            return ret;
+            return result;
         }
 
-        private static void LogParametersIfDebugEnabled(IDictionary<string, object> args)
+        public void AggregateAddresses(IDictionary<string, object> args)
         {
-            if (Log.IsEnabled(LogEventLevel.Debug))
+            foreach (var item in args)
             {
-                var sb = StringBuilderCache.Acquire(StringBuilderCache.MaxBuilderSize);
-
-                foreach (var kvp in args)
-                {
-                    sb.Append(kvp.Key);
-                    sb.Append(": ");
-                    sb.AppendLine(kvp.Value.ToString());
-                }
-
-                Log.Debug("Executing AppSec In-App WAF with parameters: {Parameters}", sb.ToString());
+                _addresses[item.Key] = item.Value;
             }
         }
 

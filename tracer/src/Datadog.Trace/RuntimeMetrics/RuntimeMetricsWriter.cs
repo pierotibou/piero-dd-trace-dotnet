@@ -16,7 +16,10 @@ namespace Datadog.Trace.RuntimeMetrics
 {
     internal class RuntimeMetricsWriter : IDisposable
     {
+        private const string ProcessMetrics = $"{MetricsNames.ThreadsCount}, {MetricsNames.CommittedMemory}, {MetricsNames.CpuUserTime}, {MetricsNames.CpuSystemTime}, {MetricsNames.CpuPercentage}";
+
         private static readonly IDatadogLogger Log = DatadogLogging.GetLoggerFor<RuntimeMetricsWriter>();
+        private static readonly Func<IDogStatsd, TimeSpan, IRuntimeMetricsListener> InitializeListenerFunc = InitializeListener;
 
         private readonly TimeSpan _delay;
 
@@ -33,7 +36,7 @@ namespace Datadog.Trace.RuntimeMetrics
         private TimeSpan _previousSystemCpu;
 
         public RuntimeMetricsWriter(IDogStatsd statsd, TimeSpan delay)
-            : this(statsd, delay, InitializeListener)
+            : this(statsd, delay, InitializeListenerFunc)
         {
         }
 
@@ -120,6 +123,8 @@ namespace Datadog.Trace.RuntimeMetrics
                     _statsd.Gauge(MetricsNames.CpuSystemTime, systemCpu.TotalMilliseconds / _delay.TotalSeconds);
 
                     _statsd.Gauge(MetricsNames.CpuPercentage, Math.Round(totalCpu.TotalMilliseconds * 100 / maximumCpu, 1, MidpointRounding.AwayFromZero));
+
+                    Log.Debug("Sent the following metrics to the DD agent: {metrics}", ProcessMetrics);
                 }
 
                 if (!_exceptionCounts.IsEmpty)
@@ -132,6 +137,12 @@ namespace Datadog.Trace.RuntimeMetrics
                     // There's a race condition where we could clear items that haven't been pushed
                     // Having an exact exception count is probably not worth the overhead required to fix it
                     _exceptionCounts.Clear();
+
+                    Log.Debug("Sent the following metrics to the DD agent: {metrics}", MetricsNames.ExceptionsCount);
+                }
+                else
+                {
+                    Log.Debug("Did not send the following metrics to the DD agent: {metrics}", MetricsNames.ExceptionsCount);
                 }
             }
             catch (Exception ex)

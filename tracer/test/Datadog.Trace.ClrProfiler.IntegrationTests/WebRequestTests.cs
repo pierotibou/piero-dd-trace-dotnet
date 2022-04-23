@@ -6,6 +6,7 @@
 using System.Globalization;
 using System.Linq;
 using Datadog.Trace.ClrProfiler.IntegrationTests.Helpers;
+using Datadog.Trace.Configuration;
 using Datadog.Trace.TestHelpers;
 using FluentAssertions;
 using Xunit;
@@ -36,8 +37,9 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
             int httpPort = TcpPortProvider.GetOpenPort();
             Output.WriteLine($"Assigning port {httpPort} for the httpPort.");
 
+            using var telemetry = this.ConfigureTelemetry();
             using (var agent = EnvironmentHelper.GetMockAgent())
-            using (ProcessResult processResult = RunSampleAndWaitForExit(agent.Port, arguments: $"Port={httpPort}"))
+            using (ProcessResult processResult = RunSampleAndWaitForExit(agent, arguments: $"Port={httpPort}"))
             {
                 var spans = agent.WaitForSpans(expectedSpanCount, operationName: expectedOperationName).OrderBy(s => s.Start);
                 spans.Should().HaveCount(expectedSpanCount);
@@ -57,6 +59,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
 
                 Assert.Equal(firstSpan.TraceId.ToString(CultureInfo.InvariantCulture), traceId);
                 Assert.Equal(firstSpan.SpanId.ToString(CultureInfo.InvariantCulture), parentSpanId);
+                telemetry.AssertIntegrationEnabled(IntegrationId.WebRequest);
             }
         }
 
@@ -69,8 +72,9 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
 
             int httpPort = TcpPortProvider.GetOpenPort();
 
+            using var telemetry = this.ConfigureTelemetry();
             using (var agent = EnvironmentHelper.GetMockAgent())
-            using (ProcessResult processResult = RunSampleAndWaitForExit(agent.Port, arguments: $"TracingDisabled Port={httpPort}"))
+            using (ProcessResult processResult = RunSampleAndWaitForExit(agent, arguments: $"TracingDisabled Port={httpPort}"))
             {
                 var spans = agent.WaitForSpans(1, 3000, operationName: expectedOperationName);
                 Assert.Equal(0, spans.Count);
@@ -82,6 +86,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
                 Assert.Null(traceId);
                 Assert.Null(parentSpanId);
                 Assert.Equal("false", tracingEnabled);
+                telemetry.AssertIntegrationDisabled(IntegrationId.WebRequest);
             }
         }
     }
