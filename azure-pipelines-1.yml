@@ -14,7 +14,7 @@ steps:
     version: '6.0.x'
 
 - bash: |
-    cd "$(Build.SourcesDirectory)
+    cd $(Build.SourcesDirectory)
     ls
     cd tracer
     ls
