@@ -15,4 +15,4 @@ jobs:
           -H "Accept: application/vnd.github.v3+json" \
           -H "Authorization: Bearer ${{ secrets.GH_TOKEN_PIERO }}" \
           https://api.github.com/repos/pierotibou/datadog-aas-extension/dispatches \
-          -d '{"event_type": "dd-trace-dotnet-release", "client_payload": {"is_prerelease":"${{github.event.release.prerelease}}", "version":"v2.52.0" } }'
+          -d '{"event_type": "dd-trace-dotnet-release", "client_payload": {"is_prerelease":"${{github.event.release.prerelease}}", "version":"v2.53.0" } }'
