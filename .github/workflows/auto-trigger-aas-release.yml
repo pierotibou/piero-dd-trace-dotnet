@@ -5,13 +5,16 @@ on:
     types: [published]
 
 jobs:
-  hastalavista:
+  trigger_aas_release:
     runs-on: ubuntu-latest
-    steps:
+    env:
+      GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+    steps:        
       - name: Trigger AAS release
         run: |
           curl -X POST \
           -H "Accept: application/vnd.github.v3+json" \
           -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-          https://api.github.com/repos/pierotibou/datadog=aas=extension/dispatches \
-          -d '{"inputs": {"is_prerelease":"${{github.event.release.prerelease}}", "version":"${{github.event.release.tag_name}}00" }}'
+          https://api.github.com/repos/pierotibou/datadog-aas-extension/dispatches \
+          -d '{"inputs": {"is_prerelease":"${{github.event.release.prerelease}}", "version":"${{github.event.release.tag_name}}00" } }'
