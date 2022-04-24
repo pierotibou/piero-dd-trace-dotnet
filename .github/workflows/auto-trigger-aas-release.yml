@@ -1,8 +1,8 @@
 name: Auto trigger AAS version bump
 
-on:
-  release:
-    types: [published]
+on: [push]
+#  release:
+#    types: [published]
 
 jobs:
   trigger_aas_release:
