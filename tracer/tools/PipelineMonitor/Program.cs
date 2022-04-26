@@ -63,7 +63,8 @@ try
 {
     var processor = new BuildProcessor(buildData, timeline);
     processor.Process();
-    Console.WriteLine("Build " + buildId + " has been processed successfully. It should be visible at: https://ddstaging.datadoghq.com/apm/services/consolidated-pipeline/operations/ci_run/resources");
+    Console.WriteLine("Build " + buildId + " has been processed successfully. It should be visible at: https://dd-dotnet.datadoghq.com/apm/services/consolidated-pipeline/operations/ci_run/resources");
+    await Tracer.Instance.ForceFlushAsync();
 }
 catch (Exception ex)
 {
