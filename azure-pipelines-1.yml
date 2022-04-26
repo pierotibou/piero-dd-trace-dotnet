@@ -34,3 +34,5 @@ steps:
   displayName: "Run"
   workingDirectory: "$(Build.SourcesDirectory)/tracer/tools/PipelineMonitor"
 
+- bash: sleep 20
+  displayName: Wait 20 seconds to agent flush before finishing pipeline
