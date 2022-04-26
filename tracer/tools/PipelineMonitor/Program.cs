@@ -6,7 +6,7 @@ using Datadog.Trace;
 using Datadog.Trace.Configuration;
 using PipelineMonitor;
 
-const string azDoApi = "https://dev.azure.com/datadoghq/dd-trace-dotnet/_apis/build/builds/";
+const string azDoApi = "https://dev.azure.com/datadoghq/PierreTestProject/_apis/build/builds/";
 var _cli = new HttpClient();
 
 var tracerSettings = new TracerSettings {Environment = "apm-dotnet-pipeline-monitoring", GlobalSamplingRate = 100};
