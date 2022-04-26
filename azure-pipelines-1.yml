@@ -1,11 +1,23 @@
 trigger: none
 pr: none
 
+variables:
+  ddApiKey: $(DD_API_KEY)
+
 resources:
   pipelines:
-  - pipeline: consolidated-pipeline # Name of the pipeline resource.
-    source: consolidated-pipeline # The name of the pipeline referenced by this pipeline resource.
+  - pipeline: consolidated-pipeline
+    source: consolidated-pipeline
     trigger: true # Run when any run of consolidated-pipeline completes
+
+  containers:
+  - container: dd_agent
+    image: datadog/agent
+    ports:
+    - 8126:8126
+    env:
+      DD_API_KEY: $(ddApiKey)
+      DD_INSIDE_CI: true
 
 steps:
 
