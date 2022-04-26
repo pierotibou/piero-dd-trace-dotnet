@@ -6,7 +6,7 @@ using Datadog.Trace;
 using Datadog.Trace.Configuration;
 using PipelineMonitor;
 
-const string azDoApi = "https://dev.azure.com/datadoghq/PierreTestProject/_apis/build/builds/";
+const string azDoApi = "https://dev.azure.com/datadoghq/dd-trace-dotnet/_apis/build/builds/97318";
 var _cli = new HttpClient();
 
 var tracerSettings = new TracerSettings {Environment = "apm-dotnet-pipeline-monitoring", GlobalSamplingRate = 100};
@@ -18,7 +18,7 @@ if (args?.Length == 0)
     return;
 }
 
-var buildId = args[0];
+var buildId = 97318;
 Console.WriteLine("Processing pipeline: " + buildId);
 Build? buildData;
 TimelineData? timeline;
