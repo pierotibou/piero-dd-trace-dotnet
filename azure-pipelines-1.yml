@@ -8,7 +8,6 @@ resources:
   pipelines:
   - pipeline: consolidated-pipeline
     source: consolidated-pipeline
-    trigger: true # Run when any run of consolidated-pipeline completes 
 
   containers:
   - container: dd_agent
