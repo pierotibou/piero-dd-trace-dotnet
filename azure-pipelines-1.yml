@@ -86,9 +86,11 @@ stages:
       matrix: $[stageDependencies.generate_variables.generate_variables_job.outputs['generate_variables_step.integration_tests_windows_iis_matrix'] ]
     pool:
       name: azure-windows-scale-set
+    
 
     steps:
     - script: "echo $(targetPlatform)"
     - template: .azure-pipelines/steps/install-dotnet-sdks.yml
       parameters:
         includeX86: $(targetPlatform)
+        test: variables.targetPlatform
