@@ -87,13 +87,11 @@ stages:
     pool:
       name: azure-windows-scale-set
     variables:
-      relativeMsiOutputDirectory: $(relativeArtifacts)/$(targetPlatform)/en-us
-      USE_NATIVE_LOADER: true
+      isX86: $[ eq(variables.targetPlatform, 'x86') ]
 
     steps:
     - script: "echo $(targetPlatform)"
-    - script: "echo $( eq(targetPlatform, 'x86') )"
-    - script: "echo $[ eq(targetPlatform, 'x86') ]"
+    - script: "echo $(isX86)"
     - template: .azure-pipelines/steps/install-dotnet-sdks.yml
       parameters:
-        includeX86: false #$(eq(targetPlatform, 'x86'))
+        includeX86: $(isX86)
