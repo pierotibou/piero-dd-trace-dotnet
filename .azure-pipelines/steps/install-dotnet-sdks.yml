@@ -1,7 +1,7 @@
 parameters:
   - name: includeX86
     type: string
-    default: 'false'
+    default: ""
 
 steps:
 - task: UseDotNet@2
@@ -40,7 +40,7 @@ steps:
     includePreviewVersions: true
   retryCountOnTaskFailure: 5
 
-- ${{ if eq(parameters.includeX86, 'true') }}:
+- ${{ if eq(parameters.includeX86, 'x86') }}:
     - template: install-dotnet-sdk-32bit.yml
       parameters:
         channel: 2.1
