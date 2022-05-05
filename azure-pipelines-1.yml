@@ -91,6 +91,7 @@ stages:
       USE_NATIVE_LOADER: true
 
     steps:
+    - script: "echo $(targetPlatform)"
     - template: .azure-pipelines/steps/install-dotnet-sdks.yml
       parameters:
-        includeX86: $(eq(targetPlatform, 'x86'))
+        includeX86: #$(eq(targetPlatform, 'x86'))
