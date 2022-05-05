@@ -2,43 +2,13 @@ parameters:
   - name: includeX86
     type: string
     default: ""
+  - name: test
+    type: string
+    default: ""
 
 steps:
-- task: UseDotNet@2
-  displayName: install dotnet core sdk 2.1
-  inputs:
-    packageType: sdk
-    version: 2.1.x
-  retryCountOnTaskFailure: 5
-
-- task: UseDotNet@2
-  displayName: install dotnet core sdk 3.0
-  inputs:
-    packageType: sdk
-    version: 3.0.x
-  retryCountOnTaskFailure: 5
-
-- task: UseDotNet@2
-  displayName: install dotnet core sdk 3.1
-  inputs:
-    packageType: sdk
-    version: 3.1.x
-  retryCountOnTaskFailure: 5
-
-- task: UseDotNet@2
-  displayName: install dotnet core sdk 5
-  inputs:
-    packageType: sdk
-    version: 5.0.x
-  retryCountOnTaskFailure: 5
-
-- task: UseDotNet@2
-  displayName: install latest dotnet core sdk
-  inputs:
-    packageType: sdk
-    version: $(dotnetCoreSdkLatestVersion)
-    includePreviewVersions: true
-  retryCountOnTaskFailure: 5
+- script: echo $(includeX86)
+- script: echo $(test)
 
 - ${{ if eq(parameters.includeX86, 'x86') }}:
     - template: install-dotnet-sdk-32bit.yml
