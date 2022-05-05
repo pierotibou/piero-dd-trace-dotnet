@@ -88,10 +88,12 @@ stages:
       name: azure-windows-scale-set
     variables:
       isX86: $[ eq(variables.targetPlatform, 'x86') ]
+      isX86Bis: $[ eq(variables['targetPlatform'], 'x86') ]
 
     steps:
     - script: "echo $(targetPlatform)"
     - script: "echo $(isX86)"
+    - script: "echo $(isX86Bis)"
     - template: .azure-pipelines/steps/install-dotnet-sdks.yml
       parameters:
-        includeX86: $(isX86)
+        includeX86: $(isX86Bis)
