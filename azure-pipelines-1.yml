@@ -92,7 +92,9 @@ stages:
 
     steps:
     - script: "echo $(targetPlatform)"
-    - script: "echo $(eq(targetPlatform, 'x86'))"
+    - script: "echo $( eq(targetPlatform, 'x86') )"
+    - script: "echo $[ eq(targetPlatform, 'x86') ]"
+    - script: "echo ${{ eq(targetPlatform, 'x86') }}"
     - template: .azure-pipelines/steps/install-dotnet-sdks.yml
       parameters:
         includeX86: false #$(eq(targetPlatform, 'x86'))
